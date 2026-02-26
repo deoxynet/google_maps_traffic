@@ -1,0 +1,39 @@
+[package]
+name = "google_maps_traffic"
+version = "0.1.0"
+edition = "2024"
+description = "Decode live traffic data from Google Maps vector tiles"
+
+[features]
+default = []
+osm = ["dep:rstar", "dep:osmpbf"]
+fuzzing = []
+
+[dependencies]
+reqwest = { version = "0.12", features = ["gzip"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+rstar = { version = "0.12", optional = true }
+osmpbf = { version = "0.3", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[[example]]
+name = "traffic"
+path = "examples/traffic.rs"
+
+[[example]]
+name = "osm_match"
+path = "examples/osm_match.rs"
+required-features = ["osm"]
+
+[[example]]
+name = "osm_zoom_benchmark"
+path = "examples/osm_zoom_benchmark.rs"
+required-features = ["osm"]
+
+[[example]]
+name = "osm_stress"
+path = "examples/osm_stress.rs"
+required-features = ["osm"]

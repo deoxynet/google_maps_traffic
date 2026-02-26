@@ -1,0 +1,57 @@
+[package]
+name = "google_maps_traffic-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.google_maps_traffic]
+path = ".."
+features = ["fuzzing", "osm"]
+
+[[bin]]
+name = "protobuf_parse"
+path = "fuzz_targets/protobuf_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "geometry_decode"
+path = "fuzz_targets/geometry_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xhr1_parse"
+path = "fuzz_targets/xhr1_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proto_response_parse"
+path = "fuzz_targets/proto_response_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "traffic_decode_from_proto"
+path = "fuzz_targets/traffic_decode_from_proto.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "osm_matcher"
+path = "fuzz_targets/osm_matcher.rs"
+test = false
+doc = false
+bench = false
