@@ -162,21 +162,37 @@ async fn fetch_osm_tile_png(
     x: u32,
     y: u32,
 ) -> Result<RgbaImage, Box<dyn Error>> {
-    let url = format!("https://tile.openstreetmap.org/{zoom}/{x}/{y}.png");
-    let response = http.get(url).send().await?;
-    if !response.status().is_success() {
-        eprintln!(
-            "warning: OSM tile {zoom}/{x}/{y} returned {}",
-            response.status()
-        );
-        return Ok(RgbaImage::from_pixel(
-            TILE_SIZE,
-            TILE_SIZE,
-            Rgba([238, 238, 238, 255]),
-        ));
+    let hosts = [
+        "https://tile.openstreetmap.org",
+        "https://tile.openstreetmap.de",
+        "https://a.tile.openstreetmap.fr/hot",
+    ];
+
+    let mut statuses = Vec::new();
+    for host in hosts {
+        let url = format!("{host}/{zoom}/{x}/{y}.png");
+        match http.get(url).send().await {
+            Ok(response) => {
+                let status = response.status();
+                if status.is_success() {
+                    let bytes = response.bytes().await?;
+                    return Ok(image::load_from_memory(&bytes)?.to_rgba8());
+                }
+                statuses.push(format!("{host}:{status}"));
+            }
+            Err(err) => statuses.push(format!("{host}:ERR({err})")),
+        }
     }
-    let bytes = response.bytes().await?;
-    Ok(image::load_from_memory(&bytes)?.to_rgba8())
+
+    eprintln!(
+        "warning: failed to fetch OSM tile {zoom}/{x}/{y}; fallbacks={}",
+        statuses.join(", ")
+    );
+    Ok(RgbaImage::from_pixel(
+        TILE_SIZE,
+        TILE_SIZE,
+        Rgba([238, 238, 238, 255]),
+    ))
 }
 
 fn render_traffic_snapshot(base: &Basemap, tiles: &[TrafficTile]) -> RgbaImage {

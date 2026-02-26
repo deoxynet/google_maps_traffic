@@ -3,11 +3,126 @@ use crate::protobuf::wire;
 use crate::tile_coord::TileCoord;
 use crate::types::LatLng;
 
+const CMD_MOVE_TO: u64 = 1;
+const CMD_LINE_TO: u64 = 2;
+const CMD_CLOSE_PATH: u64 = 7;
+
 /// Decode delta-encoded zigzag varint pairs from raw bytes into tile-local coordinates.
 ///
 /// The encoding stores (dx, dy) pairs as zigzag-encoded varints.
 /// Each coordinate is the cumulative sum of deltas.
 pub fn decode_tile_geometry(data: &[u8]) -> Result<Vec<(i32, i32)>> {
+    if data.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Preferred path: protobuf vector-tile command stream (MoveTo/LineTo/ClosePath).
+    // Keep a compatibility fallback for plain (dx,dy) pair payloads observed in older captures.
+    if let Ok(coords) = decode_command_geometry(data)
+        && !coords.is_empty()
+    {
+        return Ok(coords);
+    }
+
+    decode_delta_pairs_geometry(data)
+}
+
+fn decode_command_geometry(data: &[u8]) -> Result<Vec<(i32, i32)>> {
+    let mut coords = Vec::new();
+    let mut pos = 0;
+    let mut cx: i32 = 0;
+    let mut cy: i32 = 0;
+
+    let mut cmd_id: u64 = 0;
+    let mut cmd_remaining: u32 = 0;
+
+    while pos < data.len() {
+        if cmd_remaining == 0 {
+            let cmd_pos = pos;
+            let (cmd, consumed) = wire::read_varint(&data[pos..]).map_err(|e| {
+                Error::GeometryDecode(format!("command varint at offset {cmd_pos}: {e}"))
+            })?;
+            pos += consumed;
+
+            let id = cmd & 0x7;
+            let count = (cmd >> 3) as u32;
+            if count == 0 {
+                return Err(Error::GeometryDecode(format!(
+                    "zero command count at offset {cmd_pos}"
+                )));
+            }
+            match id {
+                CMD_MOVE_TO | CMD_LINE_TO | CMD_CLOSE_PATH => {}
+                _ => {
+                    return Err(Error::GeometryDecode(format!(
+                        "unknown command id {id} at offset {cmd_pos}"
+                    )));
+                }
+            }
+            cmd_id = id;
+            cmd_remaining = count;
+        }
+
+        match cmd_id {
+            CMD_MOVE_TO | CMD_LINE_TO => {
+                let x_pos = pos;
+                let (vx, consumed) = wire::read_varint(&data[pos..]).map_err(|e| {
+                    Error::GeometryDecode(format!("x varint at offset {x_pos}: {e}"))
+                })?;
+                pos += consumed;
+
+                if pos >= data.len() {
+                    return Err(Error::GeometryDecode(format!(
+                        "missing y varint after x at offset {x_pos}"
+                    )));
+                }
+
+                let y_pos = pos;
+                let (vy, consumed) = wire::read_varint(&data[pos..]).map_err(|e| {
+                    Error::GeometryDecode(format!("y varint at offset {y_pos}: {e}"))
+                })?;
+                pos += consumed;
+
+                let dx = i32::try_from(wire::zigzag_decode(vx)).map_err(|_| {
+                    Error::GeometryDecode(format!(
+                        "x delta out of i32 range at offset {x_pos}: {vx}"
+                    ))
+                })?;
+                let dy = i32::try_from(wire::zigzag_decode(vy)).map_err(|_| {
+                    Error::GeometryDecode(format!(
+                        "y delta out of i32 range at offset {y_pos}: {vy}"
+                    ))
+                })?;
+
+                cx = cx
+                    .checked_add(dx)
+                    .ok_or_else(|| Error::GeometryDecode("x coordinate overflow".into()))?;
+                cy = cy
+                    .checked_add(dy)
+                    .ok_or_else(|| Error::GeometryDecode("y coordinate overflow".into()))?;
+
+                coords.push((cx, cy));
+                cmd_remaining -= 1;
+            }
+            CMD_CLOSE_PATH => {
+                // For traffic polylines, closed rings are not expected.
+                // Consume the command without emitting points.
+                cmd_remaining -= 1;
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    if cmd_remaining != 0 {
+        return Err(Error::GeometryDecode(
+            "truncated command sequence in geometry data".into(),
+        ));
+    }
+
+    Ok(coords)
+}
+
+fn decode_delta_pairs_geometry(data: &[u8]) -> Result<Vec<(i32, i32)>> {
     let mut coords = Vec::new();
     let mut pos = 0;
     let mut cx: i32 = 0;
@@ -130,5 +245,32 @@ mod tests {
         data.extend_from_slice(&encode_varint(zigzag_encode(1)));
         data.extend_from_slice(&encode_varint(zigzag_encode(0)));
         assert!(decode_tile_geometry(&data).is_err());
+    }
+
+    #[test]
+    fn test_decode_command_stream_move_and_line_to() {
+        // MoveTo count=1 => (1 | (1 << 3)) = 9
+        // LineTo count=2 => (2 | (2 << 3)) = 18
+        // Points: (5,7), (8,9), (10,12)
+        let data = [
+            9,  // MoveTo 1
+            10, // dx=+5
+            14, // dy=+7
+            18, // LineTo 2
+            6,  // dx=+3
+            4,  // dy=+2
+            4,  // dx=+2
+            6,  // dy=+3
+        ];
+        let coords = decode_tile_geometry(&data).unwrap();
+        assert_eq!(coords, vec![(5, 7), (8, 9), (10, 12)]);
+    }
+
+    #[test]
+    fn test_decode_command_stream_ignores_closepath() {
+        // MoveTo(1) => (1,1), ClosePath(1), LineTo(1) => (2,1)
+        let data = [9, 2, 2, 15, 10, 2, 0];
+        let coords = decode_tile_geometry(&data).unwrap();
+        assert_eq!(coords, vec![(1, 1), (2, 1)]);
     }
 }
