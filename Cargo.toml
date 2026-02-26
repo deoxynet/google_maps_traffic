@@ -18,6 +18,10 @@ osmpbf = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+font8x8 = "0.3"
+gif = "0.13"
+image = "0.25"
+imageproc = "0.25"
 
 [[example]]
 name = "traffic"

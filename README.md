@@ -2,6 +2,12 @@
 
 Rust library for fetching and decoding Google Maps traffic vector tiles, with optional OSM edge matching and speed estimation.
 
+## DTLA full-day timelapse
+
+![DTLA Monday typical traffic timelapse](docs/assets/dtla_osm_typical_monday_full_day_z15_5min_preview.gif)
+
+Generated from OSM basemap + decoded Google typical traffic data for Monday across 24h.
+
 ## What it does
 
 - Fetches **live traffic** tiles from Google Maps and decodes:
@@ -111,9 +117,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `cargo run --example typical_vs_live`
 - `cargo run --example la_scan`
 - `cargo run --example direction_check`
+- `cargo run --release --example dtla_osm_timelapse_gif`
 - `cargo run --example osm_match --features osm -- <path/to.osm.pbf>`
 - `cargo run --example osm_zoom_benchmark --features osm -- <path/to.osm.pbf>`
 - `cargo run --example osm_stress --features osm -- <path/to.osm.pbf>`
+
+`dtla_osm_timelapse_gif` writes `artifacts/dtla_osm_typical_monday_full_day_z15_5min.gif` by default (full-day loop, 5-minute interpolation, zoom 15).  
+The repository includes a push-safe preview at `docs/assets/dtla_osm_typical_monday_full_day_z15_5min_preview.gif`.
 
 ## Quality and hardening
 
