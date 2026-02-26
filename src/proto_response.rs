@@ -41,7 +41,7 @@ pub fn parse_proto_response(data: &[u8]) -> Result<Vec<TrafficTile>> {
             Err(_) => continue,
         };
 
-        match decode::decode_traffic_tile(&proto, coord) {
+        match decode::decode_traffic_tile_with_extent(&proto, coord, decode::TYPICAL_TILE_EXTENT) {
             Ok(tile) => tiles.push(tile),
             Err(_) => continue,
         }

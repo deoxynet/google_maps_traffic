@@ -118,6 +118,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `cargo run --example la_scan`
 - `cargo run --example direction_check`
 - `cargo run --release --example dtla_osm_timelapse_gif`
+- `cargo run --release --example dtla_live_snapshot_png -- artifacts/visual_smoke/dtla_live_snapshot.png`
+- `TYPICAL_HOUR=9 cargo run --release --example dtla_live_snapshot_png -- artifacts/visual_smoke/dtla_typical_snapshot_09.png`
 - `cargo run --example osm_match --features osm -- <path/to.osm.pbf>`
 - `cargo run --example osm_zoom_benchmark --features osm -- <path/to.osm.pbf>`
 - `cargo run --example osm_stress --features osm -- <path/to.osm.pbf>`

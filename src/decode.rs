@@ -6,17 +6,28 @@ use crate::protobuf::wire;
 use crate::tile_coord::TileCoord;
 use crate::types::*;
 
-const TILE_EXTENT: f64 = 4096.0;
+pub(crate) const LIVE_TILE_EXTENT: f64 = 4096.0;
+pub(crate) const TYPICAL_TILE_EXTENT: f64 = 1024.0;
 
 /// Decode a parsed protobuf message into traffic data for a tile.
 pub fn decode_traffic_tile(msg: &ProtoMessage, coord: TileCoord) -> Result<TrafficTile> {
+    decode_traffic_tile_with_extent(msg, coord, LIVE_TILE_EXTENT)
+}
+
+/// Decode a parsed protobuf message into traffic data for a tile using a
+/// caller-provided vector-tile extent.
+pub fn decode_traffic_tile_with_extent(
+    msg: &ProtoMessage,
+    coord: TileCoord,
+    tile_extent: f64,
+) -> Result<TrafficTile> {
     let mut features = Vec::new();
     let mut incidents = Vec::new();
 
     // Field 7 is a single message containing repeated f1 sub-messages (features)
     for layer_msg in msg.get_messages(7) {
         for feature_msg in layer_msg.get_messages(1) {
-            if let Some(f) = decode_feature(feature_msg, &coord)? {
+            if let Some(f) = decode_feature(feature_msg, &coord, tile_extent)? {
                 features.push(f);
             }
         }
@@ -34,7 +45,11 @@ pub fn decode_traffic_tile(msg: &ProtoMessage, coord: TileCoord) -> Result<Traff
     })
 }
 
-fn decode_feature(msg: &ProtoMessage, coord: &TileCoord) -> Result<Option<TrafficFeature>> {
+fn decode_feature(
+    msg: &ProtoMessage,
+    coord: &TileCoord,
+    tile_extent: f64,
+) -> Result<Option<TrafficFeature>> {
     let layer_type = msg.get_varint(4).unwrap_or(0) as u32;
     let style_flags = msg.get_fixed32(5);
 
@@ -45,7 +60,7 @@ fn decode_feature(msg: &ProtoMessage, coord: &TileCoord) -> Result<Option<Traffi
     };
 
     let tile_coords = geometry::decode_tile_geometry(&geometry_bytes)?;
-    let geom = geometry::tile_coords_to_latlng(&tile_coords, coord, TILE_EXTENT);
+    let geom = geometry::tile_coords_to_latlng(&tile_coords, coord, tile_extent);
 
     if geom.is_empty() {
         return Ok(None);
@@ -82,8 +97,11 @@ fn decode_feature(msg: &ProtoMessage, coord: &TileCoord) -> Result<Option<Traffi
     }))
 }
 
-/// The speed data bytes appear to be point indices marking segment boundaries.
-/// Each value is the starting index of a new segment along the polyline.
+/// Decode speed segment point indices.
+///
+/// Observed payloads behave like *start indices* for independent segment runs:
+/// each boundary marks where the next segment begins, and there may be gaps
+/// between runs that should not be rendered as connecting edges.
 fn decode_speed_segments(data: &[u8], point_count: usize, layer_type: u32) -> Vec<RoadSegment> {
     let congestion = congestion_from_layer(layer_type);
     let mut segments = Vec::new();
@@ -115,12 +133,7 @@ fn decode_speed_segments(data: &[u8], point_count: usize, layer_type: u32) -> Ve
         boundaries.push(boundary);
     }
 
-    // Ensure 0 is the first boundary and point_count-1 range is covered
-    if boundaries.first() != Some(&0) {
-        boundaries.insert(0, 0);
-    }
-
-    // Normalize to monotonic in-range boundaries so segments are contiguous.
+    // Normalize to monotonic in-range index marks.
     let mut normalized = Vec::with_capacity(boundaries.len() + 1);
     for boundary in boundaries {
         if boundary > last_point {
@@ -139,17 +152,19 @@ fn decode_speed_segments(data: &[u8], point_count: usize, layer_type: u32) -> Ve
     if normalized.first() != Some(&0) {
         normalized.insert(0, 0);
     }
-    if normalized.last().copied() != Some(last_point) {
-        normalized.push(last_point);
-    }
 
-    for window in normalized.windows(2) {
-        let start = window[0];
-        let end = window[1];
-        if end > start {
+    if normalized.last().copied() != Some(point_count) {
+        normalized.push(point_count);
+    }
+    // Start-run interpretation: each mark starts a segment, and the next mark
+    // starts a new segment (no implicit bridge edge between runs).
+    for starts in normalized.windows(2) {
+        let start = starts[0];
+        let next_start = starts[1];
+        if next_start > start + 1 {
             segments.push(RoadSegment {
                 start_index: start,
-                end_index: end,
+                end_index: next_start - 1,
                 congestion,
             });
         }
@@ -266,7 +281,7 @@ mod tests {
             .iter()
             .map(|s| (s.start_index, s.end_index))
             .collect();
-        assert_eq!(got, vec![(0, 2), (2, 4), (4, 7), (7, 128), (128, 129)]);
+        assert_eq!(got, vec![(0, 1), (2, 3), (4, 6), (7, 127), (128, 129)]);
     }
 
     #[test]

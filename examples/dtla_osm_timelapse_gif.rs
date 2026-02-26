@@ -230,11 +230,42 @@ fn draw_feature(img: &mut RgbaImage, base: &Basemap, zoom: u8, feature: &Traffic
         return;
     }
 
+    let render_full_geom = std::env::var("RENDER_FULL_GEOM")
+        .ok()
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
     let points: Vec<(f64, f64)> = feature
         .geometry
         .iter()
         .map(|p| latlng_to_pixel(p, zoom, base.min_x, base.min_y))
         .collect();
+
+    if render_full_geom {
+        let color = congestion_color(feature.segments.first().map(|s| s.congestion).unwrap_or(
+            match feature.layer_type % 10 {
+                1 => CongestionLevel::Normal,
+                2 => CongestionLevel::Slow,
+                3 => CongestionLevel::Heavy,
+                4 => CongestionLevel::Severe,
+                _ => CongestionLevel::Unknown(0),
+            },
+        ));
+        for i in 0..points.len().saturating_sub(1) {
+            let (x1, y1) = points[i];
+            let (x2, y2) = points[i + 1];
+            draw_thick_line(
+                img,
+                x1.round() as i32,
+                y1.round() as i32,
+                x2.round() as i32,
+                y2.round() as i32,
+                color,
+                3,
+            );
+        }
+        return;
+    }
 
     for seg in &feature.segments {
         let color = congestion_color(seg.congestion);
