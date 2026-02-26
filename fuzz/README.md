@@ -31,7 +31,7 @@ for t in protobuf_parse geometry_decode xhr1_parse proto_response_parse traffic_
 done
 ```
 
-Use the repo smoke script (uses `fuzz/corpus_smoke/<target>` when present, then runs on temporary copies so corpora are not mutated):
+Use the repo smoke script (uses `fuzz/corpus_smoke/<target>` when present, then runs on temporary copies so corpora are not mutated; if no corpus exists for a known target, it generates a minimal temporary seed so CI can still run):
 
 ```bash
 ./fuzz/scripts/run_smoke.sh

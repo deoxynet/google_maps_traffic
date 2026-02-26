@@ -35,23 +35,33 @@ cleanup() {
 trap cleanup EXIT
 
 for target in "${TARGETS[@]}"; do
+  target_source="$FUZZ_DIR/fuzz_targets/$target.rs"
+  if [[ ! -f "$target_source" ]]; then
+    echo "unknown fuzz target '$target' (missing $target_source)" >&2
+    exit 1
+  fi
+
   smoke_corpus="$FUZZ_DIR/corpus_smoke/$target"
   default_corpus="$FUZZ_DIR/corpus/$target"
+  corpus=""
+  corpus_mode=""
   if [[ -d "$smoke_corpus" ]] && has_files "$smoke_corpus"; then
     corpus="$smoke_corpus"
+    corpus_mode="smoke"
   elif [[ -d "$default_corpus" ]] && has_files "$default_corpus"; then
     corpus="$default_corpus"
-  else
-    echo "no non-empty corpus found for target '$target'" >&2
-    echo "checked: $smoke_corpus and $default_corpus" >&2
-    exit 1
+    corpus_mode="default"
   fi
 
   run_corpus="$WORK_DIR/$target"
   mkdir -p "$run_corpus"
-  rsync -a "$corpus/" "$run_corpus/"
-
-  echo "=== $target (corpus: ${corpus#$REPO_ROOT/}, mode: temp-copy) ==="
+  if [[ -n "${corpus:-}" ]]; then
+    rsync -a "$corpus/" "$run_corpus/"
+    echo "=== $target (corpus: ${corpus#$REPO_ROOT/}, mode: temp-copy/$corpus_mode) ==="
+  else
+    printf '\x00' > "$run_corpus/seed"
+    echo "=== $target (corpus: generated, mode: temp-copy/synthetic-seed) ==="
+  fi
   cargo +nightly fuzz run "$target" "$run_corpus" -- -max_total_time="$SMOKE_TIME" -verbosity=0 -print_final_stats=1
   echo
 done
