@@ -1,5 +1,6 @@
 use google_maps_traffic::{
-    Bounds, CongestionLevel, MatchConfig, OsmRoadNetwork, SpeedEstimationConfig, TrafficClient,
+    Bounds, CongestionLevel, EdgeTravelDirection, MatchConfig, OsmRoadNetwork,
+    SpeedEstimationConfig, TrafficClient,
 };
 
 #[tokio::main]
@@ -63,6 +64,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Match rate: {match_rate:.1}%");
     println!("  Unique matched OSM edges: {}", output.matches.len());
 
+    let forward_matches = output
+        .matches
+        .iter()
+        .filter(|m| matches!(m.direction, EdgeTravelDirection::Forward))
+        .count();
+    let reverse_matches = output.matches.len().saturating_sub(forward_matches);
+    println!("  Directional split: forward={forward_matches} reverse={reverse_matches}");
+
     let mut normal = 0usize;
     let mut slow = 0usize;
     let mut heavy = 0usize;
@@ -102,13 +111,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !severe_matches.is_empty() {
         println!("\nTop severe edge matches:");
         for m in severe_matches.into_iter().take(10) {
-            let est_speed = m.estimate_speed_kph(hour_utc, &speed_config);
+            let est_speed = m
+                .estimate_speed_in_match_direction_kph(hour_utc, &speed_config)
+                .unwrap_or_else(|| m.estimate_speed_kph(hour_utc, &speed_config));
             println!(
-                "  way={} {}->{} {} limit={:.1}kph est={:.1}kph dist={:.1}m bearing_diff={:.1} score={:.3}",
+                "  way={} {}->{} {} dir={:?} limit={:.1}kph est={:.1}kph dist={:.1}m bearing_diff={:.1} score={:.3}",
                 m.edge.way_id,
                 m.edge.start_node_id,
                 m.edge.end_node_id,
                 m.edge.highway,
+                m.direction,
                 m.edge.max_speed_kph,
                 est_speed,
                 m.distance_m,

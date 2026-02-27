@@ -19,6 +19,7 @@ Generated from OSM basemap + decoded Google typical traffic data for Monday acro
   - legal speed limit (`maxspeed` / defaults)
   - congestion class
   - hour-of-day factors
+  - matched travel direction (forward/reverse)
 
 ## Highlights
 
@@ -26,6 +27,7 @@ Generated from OSM basemap + decoded Google typical traffic data for Monday acro
 - Robust bounds handling including antimeridian crossing.
 - Retry logic for transient HTTP failures.
 - OSM loading with oneway + directional speed handling.
+- Direction-aware OSM matching preserves both directions on two-way roads.
 - Fuzzing targets and smoke scripts for parser/matcher hardening.
 
 ## Install
@@ -103,8 +105,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let speed_cfg = SpeedEstimationConfig::default();
     for m in out.matches.iter().take(5) {
-        let est_kph = m.estimate_speed_kph(Some(17), &speed_cfg);
-        println!("way={} limit={:.1} est={:.1}", m.edge.way_id, m.edge.max_speed_kph, est_kph);
+        let est_kph = m
+            .estimate_speed_in_match_direction_kph(Some(17), &speed_cfg)
+            .unwrap_or_else(|| m.estimate_speed_kph(Some(17), &speed_cfg));
+        println!(
+            "way={} dir={:?} limit={:.1} est={:.1}",
+            m.edge.way_id,
+            m.direction,
+            m.edge.max_speed_kph,
+            est_kph
+        );
     }
 
     Ok(())
@@ -126,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `dtla_osm_timelapse_gif` writes `artifacts/dtla_osm_typical_monday_full_day_z15_5min.gif` by default (full-day loop, 5-minute interpolation, zoom 15).  
 The repository includes a push-safe preview at `docs/assets/dtla_osm_typical_monday_full_day_z15_5min_preview.gif`.
+The render uses flow-offset strokes + arrowheads so segment direction is visible.
 
 ## Quality and hardening
 

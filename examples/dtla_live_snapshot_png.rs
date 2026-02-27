@@ -21,11 +21,26 @@ const COLOR_SLOW: Rgba<u8> = Rgba([255, 210, 0, 255]);
 const COLOR_HEAVY: Rgba<u8> = Rgba([255, 140, 0, 255]);
 const COLOR_SEVERE: Rgba<u8> = Rgba([220, 20, 30, 255]);
 const COLOR_UNKNOWN: Rgba<u8> = Rgba([160, 160, 160, 255]);
+const FLOW_LATERAL_OFFSET_PX: f64 = 1.2;
+const FLOW_ARROW_LENGTH_PX: f64 = 10.0;
+const FLOW_ARROW_HALF_WIDTH_PX: f64 = 4.0;
+const FLOW_ARROW_OUTLINE: Rgba<u8> = Rgba([0, 0, 0, 255]);
 
 struct Basemap {
     img: RgbaImage,
     min_x: u32,
     min_y: u32,
+}
+
+#[derive(Clone, Copy)]
+struct ShiftedSegment {
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    ux: f64,
+    uy: f64,
+    len: f64,
 }
 
 #[tokio::main]
@@ -173,17 +188,163 @@ fn draw_feature(img: &mut RgbaImage, base: &Basemap, zoom: u8, feature: &Traffic
         for i in start..end {
             let (x1, y1) = points[i];
             let (x2, y2) = points[i + 1];
-            draw_thick_line(
-                img,
-                x1.round() as i32,
-                y1.round() as i32,
-                x2.round() as i32,
-                y2.round() as i32,
-                color,
-                3,
-            );
+            draw_directed_stroke(img, x1, y1, x2, y2, color);
+        }
+        draw_segment_flow_arrow(img, &points, start, end, color);
+    }
+}
+
+fn draw_directed_stroke(img: &mut RgbaImage, x1: f64, y1: f64, x2: f64, y2: f64, color: Rgba<u8>) {
+    if let Some(s) = shift_segment_for_flow(x1, y1, x2, y2) {
+        draw_thick_line(
+            img,
+            s.x1.round() as i32,
+            s.y1.round() as i32,
+            s.x2.round() as i32,
+            s.y2.round() as i32,
+            color,
+            3,
+        );
+    }
+}
+
+fn draw_segment_flow_arrow(
+    img: &mut RgbaImage,
+    points: &[(f64, f64)],
+    start: usize,
+    end: usize,
+    color: Rgba<u8>,
+) {
+    if end <= start || end > points.len().saturating_sub(1) {
+        return;
+    }
+
+    let mid = start + (end - start) / 2;
+    for delta in 0..=(end - start) {
+        let upper = mid + delta;
+        if upper < end && draw_arrow_for_edge(img, points[upper], points[upper + 1], color) {
+            return;
+        }
+
+        if delta > 0 {
+            let lower = mid.saturating_sub(delta);
+            if lower >= start
+                && lower < end
+                && draw_arrow_for_edge(img, points[lower], points[lower + 1], color)
+            {
+                return;
+            }
         }
     }
+}
+
+fn draw_arrow_for_edge(
+    img: &mut RgbaImage,
+    p1: (f64, f64),
+    p2: (f64, f64),
+    color: Rgba<u8>,
+) -> bool {
+    let Some(s) = shift_segment_for_flow(p1.0, p1.1, p2.0, p2.1) else {
+        return false;
+    };
+    if s.len < FLOW_ARROW_LENGTH_PX * 1.2 {
+        return false;
+    }
+
+    let tip_t = 0.75;
+    let tip_x = s.x1 + (s.x2 - s.x1) * tip_t;
+    let tip_y = s.y1 + (s.y2 - s.y1) * tip_t;
+    let base_x = tip_x - s.ux * FLOW_ARROW_LENGTH_PX;
+    let base_y = tip_y - s.uy * FLOW_ARROW_LENGTH_PX;
+    let nx = -s.uy;
+    let ny = s.ux;
+
+    let left_x = base_x + nx * FLOW_ARROW_HALF_WIDTH_PX;
+    let left_y = base_y + ny * FLOW_ARROW_HALF_WIDTH_PX;
+    let right_x = base_x - nx * FLOW_ARROW_HALF_WIDTH_PX;
+    let right_y = base_y - ny * FLOW_ARROW_HALF_WIDTH_PX;
+
+    draw_thick_line(
+        img,
+        tip_x.round() as i32,
+        tip_y.round() as i32,
+        left_x.round() as i32,
+        left_y.round() as i32,
+        FLOW_ARROW_OUTLINE,
+        2,
+    );
+    draw_thick_line(
+        img,
+        tip_x.round() as i32,
+        tip_y.round() as i32,
+        right_x.round() as i32,
+        right_y.round() as i32,
+        FLOW_ARROW_OUTLINE,
+        2,
+    );
+    draw_thick_line(
+        img,
+        tip_x.round() as i32,
+        tip_y.round() as i32,
+        base_x.round() as i32,
+        base_y.round() as i32,
+        FLOW_ARROW_OUTLINE,
+        2,
+    );
+    draw_thick_line(
+        img,
+        tip_x.round() as i32,
+        tip_y.round() as i32,
+        left_x.round() as i32,
+        left_y.round() as i32,
+        color,
+        1,
+    );
+    draw_thick_line(
+        img,
+        tip_x.round() as i32,
+        tip_y.round() as i32,
+        right_x.round() as i32,
+        right_y.round() as i32,
+        color,
+        1,
+    );
+    draw_thick_line(
+        img,
+        tip_x.round() as i32,
+        tip_y.round() as i32,
+        base_x.round() as i32,
+        base_y.round() as i32,
+        color,
+        1,
+    );
+    true
+}
+
+fn shift_segment_for_flow(x1: f64, y1: f64, x2: f64, y2: f64) -> Option<ShiftedSegment> {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let len = (dx * dx + dy * dy).sqrt();
+    if !len.is_finite() || len <= 0.5 {
+        return None;
+    }
+
+    let ux = dx / len;
+    let uy = dy / len;
+    let nx = -uy;
+    let ny = ux;
+    let ox = nx * FLOW_LATERAL_OFFSET_PX;
+    let oy = ny * FLOW_LATERAL_OFFSET_PX;
+
+    Some(ShiftedSegment {
+        x1: x1 + ox,
+        y1: y1 + oy,
+        x2: x2 + ox,
+        y2: y2 + oy,
+        ux,
+        uy,
+        len,
+    })
 }
 
 fn draw_thick_line(

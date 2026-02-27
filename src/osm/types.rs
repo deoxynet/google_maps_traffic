@@ -7,7 +7,7 @@ pub enum Oneway {
     Reverse,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EdgeTravelDirection {
     Forward,
     Reverse,
@@ -187,6 +187,7 @@ impl SpeedEstimationConfig {
 #[derive(Debug, Clone)]
 pub struct MatchResult {
     pub edge: OsmEdge,
+    pub direction: EdgeTravelDirection,
     pub congestion: CongestionLevel,
     pub distance_m: f64,
     pub bearing_diff_deg: f64,
@@ -204,6 +205,18 @@ impl MatchResult {
         config: &SpeedEstimationConfig,
     ) -> f64 {
         config.estimate_from_limit_kph(self.edge.max_speed_kph, self.congestion, hour_of_day)
+    }
+
+    /// Estimate speed in the direction this traffic segment was matched to.
+    ///
+    /// Returns `None` when the stored direction is not legal under oneway
+    /// restrictions (should not normally happen for matcher-produced results).
+    pub fn estimate_speed_in_match_direction_kph(
+        &self,
+        hour_of_day: Option<u8>,
+        config: &SpeedEstimationConfig,
+    ) -> Option<f64> {
+        self.estimate_speed_directional_kph(self.direction, hour_of_day, config)
     }
 
     /// Estimate speed in a specific edge direction.
@@ -310,6 +323,7 @@ mod tests {
         };
         let result = MatchResult {
             edge,
+            direction: EdgeTravelDirection::Forward,
             congestion: CongestionLevel::Heavy,
             distance_m: 5.0,
             bearing_diff_deg: 2.0,
@@ -344,6 +358,7 @@ mod tests {
         };
         let result = MatchResult {
             edge,
+            direction: EdgeTravelDirection::Forward,
             congestion: CongestionLevel::Normal,
             distance_m: 1.0,
             bearing_diff_deg: 1.0,
@@ -384,6 +399,7 @@ mod tests {
         let matches = vec![
             MatchResult {
                 edge: edge.clone(),
+                direction: EdgeTravelDirection::Forward,
                 congestion: CongestionLevel::Slow,
                 distance_m: 1.0,
                 bearing_diff_deg: 1.0,
@@ -391,6 +407,7 @@ mod tests {
             },
             MatchResult {
                 edge,
+                direction: EdgeTravelDirection::Reverse,
                 congestion: CongestionLevel::Heavy,
                 distance_m: 1.0,
                 bearing_diff_deg: 1.0,

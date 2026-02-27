@@ -3,7 +3,9 @@ use crate::geo_utils::{
     shortest_lng_delta_deg, wrap_lon,
 };
 use crate::osm::index::IndexedEdge;
-use crate::osm::types::{MatchConfig, MatchOutput, MatchResult, Oneway, OsmEdge, UnmatchedSegment};
+use crate::osm::types::{
+    EdgeTravelDirection, MatchConfig, MatchOutput, MatchResult, Oneway, OsmEdge, UnmatchedSegment,
+};
 use crate::types::{CongestionLevel, LatLng, TrafficTile};
 use rstar::{AABB, RTree};
 use std::collections::HashMap;
@@ -14,6 +16,7 @@ const MAX_FALLBACK_SCORE: f64 = 2.0;
 #[derive(Debug, Clone)]
 struct CandidateMatch {
     edge_index: usize,
+    direction: EdgeTravelDirection,
     congestion: CongestionLevel,
     distance_m: f64,
     bearing_diff_deg: f64,
@@ -153,7 +156,7 @@ fn best_candidate_midpoint(
                 continue;
             }
 
-            let bearing_diff = directional_bearing_diff(segment_bearing, edge);
+            let (bearing_diff, direction) = directional_bearing_match(segment_bearing, edge);
             if !bearing_diff.is_finite() || bearing_diff > thresholds.max_bearing_diff_deg {
                 continue;
             }
@@ -168,6 +171,7 @@ fn best_candidate_midpoint(
 
             let candidate = CandidateMatch {
                 edge_index: indexed.edge_index,
+                direction,
                 congestion,
                 distance_m,
                 bearing_diff_deg: bearing_diff,
@@ -214,7 +218,7 @@ fn best_candidate_with_thresholds(
                 continue;
             }
 
-            let bearing_diff = directional_bearing_diff(query.segment_bearing, edge);
+            let (bearing_diff, direction) = directional_bearing_match(query.segment_bearing, edge);
             if !bearing_diff.is_finite() || bearing_diff > query.thresholds.max_bearing_diff_deg {
                 continue;
             }
@@ -232,6 +236,7 @@ fn best_candidate_with_thresholds(
 
             let candidate = CandidateMatch {
                 edge_index: indexed.edge_index,
+                direction,
                 congestion: query.congestion,
                 distance_m,
                 bearing_diff_deg: bearing_diff,
@@ -307,24 +312,26 @@ fn collect_tile_candidates(
 }
 
 fn dedupe_candidates(edges: &[OsmEdge], candidates: Vec<CandidateMatch>) -> Vec<MatchResult> {
-    let mut by_edge: HashMap<usize, MatchResult> = HashMap::new();
+    let mut by_edge: HashMap<(usize, EdgeTravelDirection), MatchResult> = HashMap::new();
 
     for candidate in candidates {
         let edge = edges[candidate.edge_index].clone();
         let next = MatchResult {
             edge,
+            direction: candidate.direction,
             congestion: candidate.congestion,
             distance_m: candidate.distance_m,
             bearing_diff_deg: candidate.bearing_diff_deg,
             score: candidate.score,
         };
 
-        if let Some(existing) = by_edge.get_mut(&candidate.edge_index) {
+        let key = (candidate.edge_index, candidate.direction);
+        if let Some(existing) = by_edge.get_mut(&key) {
             if should_replace(existing, &next) {
                 *existing = next;
             }
         } else {
-            by_edge.insert(candidate.edge_index, next);
+            by_edge.insert(key, next);
         }
     }
 
@@ -354,13 +361,26 @@ fn congestion_severity(congestion: CongestionLevel) -> u8 {
     }
 }
 
-fn directional_bearing_diff(segment_bearing: f64, edge: &OsmEdge) -> f64 {
+fn directional_bearing_match(segment_bearing: f64, edge: &OsmEdge) -> (f64, EdgeTravelDirection) {
     let reverse = (edge.bearing + 180.0) % 360.0;
     match edge.oneway {
-        Oneway::No => bearing_diff_deg(segment_bearing, edge.bearing)
-            .min(bearing_diff_deg(segment_bearing, reverse)),
-        Oneway::Forward => bearing_diff_deg(segment_bearing, edge.bearing),
-        Oneway::Reverse => bearing_diff_deg(segment_bearing, reverse),
+        Oneway::No => {
+            let forward = bearing_diff_deg(segment_bearing, edge.bearing);
+            let backward = bearing_diff_deg(segment_bearing, reverse);
+            if forward <= backward {
+                (forward, EdgeTravelDirection::Forward)
+            } else {
+                (backward, EdgeTravelDirection::Reverse)
+            }
+        }
+        Oneway::Forward => (
+            bearing_diff_deg(segment_bearing, edge.bearing),
+            EdgeTravelDirection::Forward,
+        ),
+        Oneway::Reverse => (
+            bearing_diff_deg(segment_bearing, reverse),
+            EdgeTravelDirection::Reverse,
+        ),
     }
 }
 
@@ -550,9 +570,10 @@ fn min_distance_to_edge(polyline_points: &[LatLng], edge: &OsmEdge) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        MatchConfig, MatchContext, Oneway, OsmEdge, SegmentInput, Thresholds,
-        adaptive_fallback_thresholds, best_candidate, best_candidate_midpoint, polyline_length_m,
-        polyline_midpoint, query_radius_degrees, sample_polyline_points,
+        CandidateMatch, EdgeTravelDirection, MatchConfig, MatchContext, Oneway, OsmEdge,
+        SegmentInput, Thresholds, adaptive_fallback_thresholds, best_candidate,
+        best_candidate_midpoint, dedupe_candidates, polyline_length_m, polyline_midpoint,
+        query_radius_degrees, sample_polyline_points,
     };
     use crate::geo_utils::compute_bearing;
     use crate::osm::index::build_rtree;
@@ -763,5 +784,55 @@ mod tests {
         );
 
         assert!(candidate.is_none());
+    }
+
+    #[test]
+    fn dedupe_candidates_keeps_opposite_directions_separate() {
+        let edges = vec![OsmEdge {
+            way_id: 1,
+            start_node_id: 10,
+            end_node_id: 11,
+            start: LatLng::new(0.0, 0.0),
+            end: LatLng::new(0.0, 0.01),
+            bearing: 90.0,
+            highway: "primary".to_string(),
+            oneway: Oneway::No,
+            max_speed_kph: 50.0,
+            max_speed_source: MaxSpeedSource::TagKph,
+            max_speed_forward_kph: 50.0,
+            max_speed_forward_source: MaxSpeedSource::TagKph,
+            max_speed_backward_kph: 50.0,
+            max_speed_backward_source: MaxSpeedSource::TagKph,
+        }];
+
+        let candidates = vec![
+            CandidateMatch {
+                edge_index: 0,
+                direction: EdgeTravelDirection::Forward,
+                congestion: CongestionLevel::Slow,
+                distance_m: 2.0,
+                bearing_diff_deg: 4.0,
+                score: 0.2,
+            },
+            CandidateMatch {
+                edge_index: 0,
+                direction: EdgeTravelDirection::Reverse,
+                congestion: CongestionLevel::Heavy,
+                distance_m: 1.0,
+                bearing_diff_deg: 3.0,
+                score: 0.1,
+            },
+        ];
+
+        let out = dedupe_candidates(&edges, candidates);
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().any(|m| {
+            m.direction == EdgeTravelDirection::Forward
+                && matches!(m.congestion, CongestionLevel::Slow)
+        }));
+        assert!(out.iter().any(|m| {
+            m.direction == EdgeTravelDirection::Reverse
+                && matches!(m.congestion, CongestionLevel::Heavy)
+        }));
     }
 }
