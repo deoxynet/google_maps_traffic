@@ -59,8 +59,8 @@ fn decode_feature(
         None => return Ok(None),
     };
 
-    let tile_coords = geometry::decode_tile_geometry(&geometry_bytes)?;
-    let geom = geometry::tile_coords_to_latlng(&tile_coords, coord, tile_extent);
+    let decoded_geometry = geometry::decode_tile_geometry_with_path_breaks(&geometry_bytes)?;
+    let geom = geometry::tile_coords_to_latlng(&decoded_geometry.coords, coord, tile_extent);
 
     if geom.is_empty() {
         return Ok(None);
@@ -84,6 +84,8 @@ fn decode_feature(
             }
         }
     };
+    let segments =
+        split_segments_at_path_breaks(segments, geom.len(), &decoded_geometry.move_to_indices);
 
     let bearing = compute_bearing(&geom);
 
@@ -179,6 +181,55 @@ fn decode_speed_segments(data: &[u8], point_count: usize, layer_type: u32) -> Ve
     }
 
     segments
+}
+
+fn split_segments_at_path_breaks(
+    segments: Vec<RoadSegment>,
+    point_count: usize,
+    move_to_indices: &[usize],
+) -> Vec<RoadSegment> {
+    if segments.is_empty() || point_count <= 1 || move_to_indices.len() <= 1 {
+        return segments;
+    }
+
+    let mut breaks: Vec<usize> = move_to_indices
+        .iter()
+        .copied()
+        .filter(|&i| i > 0 && i < point_count)
+        .collect();
+    if breaks.is_empty() {
+        return segments;
+    }
+    breaks.sort_unstable();
+    breaks.dedup();
+
+    let mut out = Vec::with_capacity(segments.len() + breaks.len());
+    for seg in segments {
+        let mut start = seg.start_index;
+        for &break_idx in &breaks {
+            if break_idx <= start || break_idx > seg.end_index {
+                continue;
+            }
+            if break_idx > start + 1 {
+                out.push(RoadSegment {
+                    start_index: start,
+                    end_index: break_idx - 1,
+                    congestion: seg.congestion,
+                });
+            }
+            start = break_idx;
+        }
+
+        if seg.end_index > start {
+            out.push(RoadSegment {
+                start_index: start,
+                end_index: seg.end_index,
+                congestion: seg.congestion,
+            });
+        }
+    }
+
+    out
 }
 
 /// Map layer_type to a congestion level.
@@ -290,5 +341,17 @@ mod tests {
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0].start_index, 0);
         assert_eq!(segments[0].end_index, 9);
+    }
+
+    #[test]
+    fn split_segments_at_path_breaks_splits_crossing_edges() {
+        let segs = vec![RoadSegment {
+            start_index: 0,
+            end_index: 6,
+            congestion: CongestionLevel::Normal,
+        }];
+        let out = split_segments_at_path_breaks(segs, 7, &[0, 3, 5]);
+        let got: Vec<_> = out.iter().map(|s| (s.start_index, s.end_index)).collect();
+        assert_eq!(got, vec![(0, 2), (3, 4), (5, 6)]);
     }
 }
