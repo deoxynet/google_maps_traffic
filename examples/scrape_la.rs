@@ -1,15 +1,21 @@
 //! Scrape live Google Maps traffic for the greater LA metro area.
 //!
-//! Fetches all tiles at the configured zoom level, serializes to compact
-//! gzipped JSON, and writes to a file.  Designed to run from CI every
-//! few minutes with the output uploaded to Cloudflare R2.
+//! Fetches tiles at multiple zoom levels, serializes to compact gzipped JSON,
+//! and writes one file per zoom.  Designed to run from CI every few minutes
+//! with outputs uploaded to Cloudflare R2.
+//!
+//! Zoom coverage:
+//!   12 — ~120 tiles, freeways only
+//!   13 — ~437 tiles, freeways + major highways
+//!   14 — ~1,665 tiles, adds major arterials
+//!   15 — ~6,336 tiles, full street-level detail
 //!
 //! Usage:
 //!   cargo run --release --example scrape_la
 //!
 //! Environment:
-//!   ZOOM=15          Tile zoom level (default: 15)
-//!   OUTPUT=path      Output file (default: snapshot.json.gz)
+//!   ZOOMS=12,13,14,15   Comma-separated zoom levels (default: all four)
+//!   OUTPUT_DIR=.         Directory for output files (default: current dir)
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -26,13 +32,11 @@ const LA_BOUNDS: Bounds = Bounds {
     east: -117.75,
 };
 
-const DEFAULT_ZOOM: u8 = 15;
+const DEFAULT_ZOOMS: &[u8] = &[12, 13, 14, 15];
 
 #[derive(Serialize)]
 struct Snapshot {
-    /// Unix timestamp (seconds)
     timestamp: u64,
-    /// ISO 8601 UTC string
     datetime: String,
     zoom: u8,
     bounds: [f64; 4],
@@ -42,7 +46,7 @@ struct Snapshot {
     incidents: Vec<Incident>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 struct Summary {
     total_features: usize,
     total_segments: usize,
@@ -55,27 +59,20 @@ struct Summary {
 
 #[derive(Serialize)]
 struct Feature {
-    /// Geometry as [[lat, lng], ...] rounded to 5 decimal places (~1m precision)
     geometry: Vec<[f64; 2]>,
-    /// Bearing in degrees (0=N, 90=E, 180=S, 270=W)
     bearing: f64,
-    /// Road segments with congestion levels
     segments: Vec<Segment>,
 }
 
 #[derive(Serialize)]
 struct Segment {
-    /// Start index into geometry array
     start: usize,
-    /// End index into geometry array
     end: usize,
-    /// Congestion level: 0=normal/green, 1=slow/yellow, 2=heavy/red, 3=severe/dark-red
     congestion: u8,
 }
 
 #[derive(Serialize)]
 struct Incident {
-    /// "accident", "road_closure", "construction", or "other"
     incident_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
@@ -110,9 +107,7 @@ fn round5(v: f64) -> f64 {
     (v * 100_000.0).round() / 100_000.0
 }
 
-/// Format Unix timestamp as ISO 8601 UTC.
 fn unix_to_iso(secs: u64) -> String {
-    // Civil date from Unix days — Howard Hinnant's algorithm
     let days = (secs / 86400) as u64;
     let time_of_day = secs % 86400;
     let h = time_of_day / 3600;
@@ -133,35 +128,23 @@ fn unix_to_iso(secs: u64) -> String {
     format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let zoom: u8 = std::env::var("ZOOM")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_ZOOM);
-
-    let output = std::env::var("OUTPUT").unwrap_or_else(|_| "snapshot.json.gz".into());
-
+async fn scrape_zoom(
+    client: &TrafficClient,
+    zoom: u8,
+    output_dir: &str,
+    now_secs: u64,
+    datetime: &str,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
     let coords = TileCoord::tiles_for_bounds(&LA_BOUNDS, zoom)?;
-    eprintln!("Fetching {} tiles at zoom {} for greater LA...", coords.len(), zoom);
+    eprintln!("  z{zoom}: fetching {} tiles...", coords.len());
 
-    let client = TrafficClient::new()?;
     let start = std::time::Instant::now();
     let tiles = client.get_traffic(&LA_BOUNDS, zoom).await?;
     let fetch_secs = start.elapsed().as_secs_f64();
 
-    // Build features
     let mut features = Vec::new();
     let mut incidents = Vec::new();
-    let mut summary = Summary {
-        total_features: 0,
-        total_segments: 0,
-        total_geometry_points: 0,
-        normal: 0,
-        slow: 0,
-        heavy: 0,
-        severe: 0,
-    };
+    let mut summary = Summary::default();
 
     for tile in &tiles {
         for feat in &tile.features {
@@ -217,7 +200,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Deduplicate incidents by description+location (tiles can overlap)
     incidents.sort_by(|a, b| {
         a.description
             .cmp(&b.description)
@@ -227,14 +209,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         a.description == b.description && a.lat == b.lat && a.lon == b.lon
     });
 
-    let now_secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
     let snapshot = Snapshot {
         timestamp: now_secs,
-        datetime: unix_to_iso(now_secs),
+        datetime: datetime.to_string(),
         zoom,
         bounds: [LA_BOUNDS.south, LA_BOUNDS.west, LA_BOUNDS.north, LA_BOUNDS.east],
         tile_count: tiles.len(),
@@ -243,43 +220,75 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         incidents,
     };
 
-    // Serialize and gzip
+    let filename = format!("snapshot_z{zoom}.json.gz");
+    let filepath = if output_dir == "." {
+        filename.clone()
+    } else {
+        format!("{output_dir}/{filename}")
+    };
+
     let json = serde_json::to_vec(&snapshot)?;
     let raw_size = json.len();
 
-    let file = std::fs::File::create(&output)?;
+    let file = std::fs::File::create(&filepath)?;
     let mut gz = GzEncoder::new(file, Compression::default());
     gz.write_all(&json)?;
     gz.finish()?;
 
-    let gz_size = std::fs::metadata(&output)?.len();
+    let gz_size = std::fs::metadata(&filepath)?.len();
 
     eprintln!(
-        "Done in {fetch_secs:.1}s: {} features, {} segments, {} incidents",
+        "  z{zoom}: {:.1}s — {} feat, {} seg (N:{} S:{} H:{} X:{}) — {:.1}MB → {:.1}MB gz",
+        fetch_secs,
         snapshot.summary.total_features,
         snapshot.summary.total_segments,
-        snapshot.incidents.len(),
-    );
-    eprintln!(
-        "Congestion: {} normal, {} slow, {} heavy, {} severe",
         snapshot.summary.normal,
         snapshot.summary.slow,
         snapshot.summary.heavy,
         snapshot.summary.severe,
-    );
-    eprintln!(
-        "Output: {} ({:.1} MB raw → {:.1} MB gzipped, {:.0}:1)",
-        output,
         raw_size as f64 / 1_048_576.0,
         gz_size as f64 / 1_048_576.0,
-        raw_size as f64 / gz_size as f64,
     );
 
-    // Print R2 key path to stdout for the CI script to capture
-    let date = &snapshot.datetime[..10]; // YYYY-MM-DD
-    let hour = &snapshot.datetime[11..13]; // HH
-    let minsec = &snapshot.datetime[14..16]; // MM (skip seconds for path)
-    println!("live/{date}/{hour}/{minsec}.json.gz");
+    let date = &datetime[..10];
+    let hour = &datetime[11..13];
+    let min = &datetime[14..16];
+    let r2_key = format!("z{zoom}/{date}/{hour}/{min}.json.gz");
+
+    Ok((filepath, r2_key))
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let zooms: Vec<u8> = std::env::var("ZOOMS")
+        .ok()
+        .map(|s| s.split(',').filter_map(|v| v.trim().parse().ok()).collect())
+        .unwrap_or_else(|| DEFAULT_ZOOMS.to_vec());
+
+    let output_dir = std::env::var("OUTPUT_DIR").unwrap_or_else(|_| ".".into());
+
+    if output_dir != "." {
+        std::fs::create_dir_all(&output_dir)?;
+    }
+
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let datetime = unix_to_iso(now_secs);
+
+    eprintln!("Scraping LA traffic at {} — zooms {:?}", datetime, zooms);
+
+    let client = TrafficClient::new()?;
+    let total_start = std::time::Instant::now();
+
+    // Output: one line per zoom with "filepath r2_key" for the CI upload step
+    for &zoom in &zooms {
+        let (filepath, r2_key) = scrape_zoom(&client, zoom, &output_dir, now_secs, &datetime).await?;
+        println!("{filepath} {r2_key}");
+    }
+
+    eprintln!("Total: {:.1}s", total_start.elapsed().as_secs_f64());
 
     Ok(())
 }
