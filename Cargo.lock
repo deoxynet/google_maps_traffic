@@ -615,6 +615,7 @@ dependencies = [
 name = "google_maps_traffic"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "font8x8",
  "gif 0.13.3",
  "image",
@@ -622,6 +623,8 @@ dependencies = [
  "osmpbf",
  "reqwest",
  "rstar",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -2555,6 +2558,17 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap",
  "semver",
+]
+
+[[package]]
+name = "web-sim"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

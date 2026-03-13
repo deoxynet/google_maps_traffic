@@ -46,6 +46,57 @@ impl TrafficClient {
         Self { http: client }
     }
 
+    /// Fetch a live traffic tile and return parsed data alongside HTTP response headers.
+    ///
+    /// Useful for inspecting cache-control signals and diagnosing update cadence.
+    pub async fn get_tile_with_headers(
+        &self,
+        coord: TileCoord,
+    ) -> Result<(TrafficTile, Vec<(String, String)>)> {
+        let url = pb_url::build_traffic_tile_url(&coord);
+        let resp = self.http.get(&url).send().await?;
+        let status = resp.status();
+        let headers: Vec<(String, String)> = resp
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("?").to_string()))
+            .collect();
+
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(Error::HttpStatus {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        let bytes = resp.bytes().await?.to_vec();
+        let records = xhr1::parse_xhr1(&bytes)?;
+
+        let mut features = Vec::new();
+        let mut incidents = Vec::new();
+        for record in &records {
+            if record.protobuf_data.is_empty() {
+                continue;
+            }
+            if let Ok(msg) = ProtoMessage::parse(&record.protobuf_data)
+                && let Ok(tile) = decode::decode_traffic_tile(&msg, coord)
+            {
+                features.extend(tile.features);
+                incidents.extend(tile.incidents);
+            }
+        }
+
+        Ok((
+            TrafficTile {
+                coord,
+                features,
+                incidents,
+            },
+            headers,
+        ))
+    }
+
     /// Fetch and decode **live** traffic data for a single tile.
     ///
     /// Uses the `stream/pb=` endpoint which returns XHR1-wrapped protobuf data.
@@ -120,12 +171,29 @@ impl TrafficClient {
         let seconds = day
             .checked_seconds_into_week(hour)
             .ok_or_else(|| Error::InvalidInput(format!("hour must be in 0..=23, got {hour}")))?;
-        let bpb = proto_encode::build_typical_bpb(coords, Some(seconds));
-        let bpb_b64 = base64_url_encode(&bpb);
-        let url = format!("https://www.google.com/maps/vt/proto?bpb={bpb_b64}");
 
-        let bytes = self.fetch_bytes_with_retry(&url).await?;
-        proto_response::parse_proto_response(&bytes)
+        // Batch tiles to keep URL length under Google's limit (~100 tiles per batch)
+        const MAX_TILES_PER_BATCH: usize = 100;
+
+        if coords.len() <= MAX_TILES_PER_BATCH {
+            let bpb = proto_encode::build_typical_bpb(coords, Some(seconds));
+            let bpb_b64 = base64_url_encode(&bpb);
+            let url = format!("https://www.google.com/maps/vt/proto?bpb={bpb_b64}");
+            let bytes = self.fetch_bytes_with_retry(&url).await?;
+            return proto_response::parse_proto_response(&bytes);
+        }
+
+        // Multiple batches needed — fetch sequentially to avoid rate limits
+        let mut all_tiles = Vec::new();
+        for chunk in coords.chunks(MAX_TILES_PER_BATCH) {
+            let bpb = proto_encode::build_typical_bpb(chunk, Some(seconds));
+            let bpb_b64 = base64_url_encode(&bpb);
+            let url = format!("https://www.google.com/maps/vt/proto?bpb={bpb_b64}");
+            let bytes = self.fetch_bytes_with_retry(&url).await?;
+            let mut tiles = proto_response::parse_proto_response(&bytes)?;
+            all_tiles.append(&mut tiles);
+        }
+        Ok(all_tiles)
     }
 
     /// Fetch **typical** traffic data for all tiles covering a bounding box
@@ -147,6 +215,27 @@ impl TrafficClient {
         }
         let coords = TileCoord::tiles_for_bounds(bounds, zoom)?;
         self.get_typical_tiles(&coords, day, hour).await
+    }
+
+    /// Fetch typical traffic tiles and return the proto-level cache TTLs.
+    ///
+    /// Each tile in the batched response carries an `f2` field — a `fixed32`
+    /// float encoding the cache TTL in seconds. This tells you how long
+    /// Google considers the tile data fresh.
+    pub async fn get_typical_ttls(
+        &self,
+        coords: &[TileCoord],
+        day: DayOfWeek,
+        hour: u8,
+    ) -> Result<Vec<f32>> {
+        let seconds = day
+            .checked_seconds_into_week(hour)
+            .ok_or_else(|| Error::InvalidInput(format!("hour must be in 0..=23, got {hour}")))?;
+        let bpb = proto_encode::build_typical_bpb(coords, Some(seconds));
+        let bpb_b64 = base64_url_encode(&bpb);
+        let url = format!("https://www.google.com/maps/vt/proto?bpb={bpb_b64}");
+        let bytes = self.fetch_bytes_with_retry(&url).await?;
+        proto_response::parse_proto_cache_ttls(&bytes)
     }
 
     async fn fetch_bytes_with_retry(&self, url: &str) -> Result<Vec<u8>> {

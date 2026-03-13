@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>DTLA Satellite Parking Census</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; }
+  #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+  #info {
+    position: absolute; top: 10px; left: 50px; z-index: 1000;
+    background: rgba(0,0,0,0.85); color: #fff; padding: 12px 16px;
+    border-radius: 8px; font-size: 13px; max-width: 320px;
+  }
+  #info h2 { margin: 0 0 6px; font-size: 15px; }
+  #info p { margin: 2px 0; color: #ccc; }
+  #legend {
+    position: absolute; bottom: 30px; left: 10px; z-index: 1000;
+    background: rgba(0,0,0,0.85); color: #fff; padding: 10px 14px;
+    border-radius: 8px; font-size: 12px;
+  }
+  .legend-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+  #controls {
+    position: absolute; top: 10px; right: 10px; z-index: 1000;
+    background: rgba(0,0,0,0.85); color: #fff; padding: 10px 14px;
+    border-radius: 8px; font-size: 12px;
+  }
+  #controls label { display: block; margin: 4px 0; }
+  #stats { color: #aaa; margin-top: 6px; }
+
+  /* Tile inspect panel */
+  #panel {
+    display: none;
+    position: absolute; top: 0; right: 0; bottom: 0; width: 420px; z-index: 2000;
+    background: rgba(0,0,0,0.92); color: #fff; overflow-y: auto;
+    box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+  }
+  #panel.open { display: block; }
+  #panel-close {
+    position: absolute; top: 8px; right: 12px; background: none; border: none;
+    color: #aaa; font-size: 22px; cursor: pointer; z-index: 1;
+  }
+  #panel-close:hover { color: #fff; }
+  #panel-header { padding: 14px 16px 8px; border-bottom: 1px solid #333; }
+  #panel-header h3 { margin: 0 0 4px; font-size: 14px; }
+  #panel-header .meta { color: #aaa; font-size: 12px; }
+  #tile-img-wrap {
+    padding: 8px; display: flex; justify-content: center; background: #111;
+    min-height: 300px; align-items: center;
+  }
+  #tile-img-wrap img {
+    max-width: 100%; image-rendering: pixelated; border: 1px solid #333;
+  }
+  #tile-img-wrap .loading { color: #666; font-size: 13px; }
+  #release-nav {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 10px; border-top: 1px solid #333;
+  }
+  #release-nav button {
+    background: #333; color: #fff; border: none; padding: 6px 14px;
+    border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  #release-nav button:hover { background: #555; }
+  #release-nav button:disabled { opacity: 0.3; cursor: default; }
+  #release-nav .date { font-size: 13px; min-width: 120px; text-align: center; }
+  #det-list {
+    padding: 8px 16px 16px; font-size: 12px; color: #aaa;
+  }
+  #det-list table { width: 100%; border-collapse: collapse; }
+  #det-list th { text-align: left; color: #888; padding: 2px 6px; border-bottom: 1px solid #333; }
+  #det-list td { padding: 2px 6px; }
+  .conf-high { color: #0f6; }
+  .conf-med { color: #ff0; }
+  .conf-low { color: #f64; }
+
+  /* Crosshair on clicked tile */
+  .tile-highlight {
+    border: 2px solid #0ff !important;
+    background: rgba(0, 255, 255, 0.08) !important;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="info">
+  <h2>DTLA Satellite Parking Census</h2>
+  <p>169,112 parking spots from 191 Wayback releases (2014–2026)</p>
+  <p>Click any spot to inspect satellite imagery + YOLO detections</p>
+</div>
+<div id="legend">
+  <div class="legend-row"><div class="legend-dot" style="background:#2166ac"></div> Rarely occupied (1-2x)</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#67a9cf"></div> Sometimes (3-5x)</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#fddbc7"></div> Often (6-10x)</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#ef8a62"></div> Usually (11-50x)</div>
+  <div class="legend-row"><div class="legend-dot" style="background:#b2182b"></div> Always (50+x)</div>
+</div>
+<div id="controls">
+  <label>Min occupancy: <input type="range" id="minOcc" min="1" max="50" value="2" style="width:120px"> <span id="minOccVal">2</span></label>
+  <label>Min confidence: <input type="range" id="minConf" min="0" max="80" value="0" style="width:120px"> <span id="minConfVal">0.00</span></label>
+  <div id="stats">Loading...</div>
+</div>
+
+<div id="panel">
+  <button id="panel-close">&times;</button>
+  <div id="panel-header">
+    <h3 id="panel-title">Tile Inspection</h3>
+    <div class="meta" id="panel-meta"></div>
+  </div>
+  <div id="tile-img-wrap">
+    <div class="loading">Click a spot on the map...</div>
+  </div>
+  <div id="release-nav">
+    <button id="btn-prev">&larr; Prev</button>
+    <div class="date" id="release-date">—</div>
+    <button id="btn-next">Next &rarr;</button>
+  </div>
+  <div id="det-list"></div>
+</div>
+
+<script>
+const ZOOM = 19;
+let allSpots = [];
+let releases = [];
+let currentReleaseIdx = 0;
+let currentTile = null; // {tx, ty}
+let tileHighlight = null;
+
+// Tile math
+function latToTileY(lat) {
+  const r = lat * Math.PI / 180;
+  const n = 1 << ZOOM;
+  return Math.floor((1 - Math.log(Math.tan(r) + 1/Math.cos(r)) / Math.PI) / 2 * n);
+}
+function lonToTileX(lon) {
+  const n = 1 << ZOOM;
+  return Math.floor((lon + 180) / 360 * n);
+}
+function tileBounds(tx, ty) {
+  const n = 1 << ZOOM;
+  const lonMin = tx / n * 360 - 180;
+  const lonMax = (tx + 1) / n * 360 - 180;
+  const latMaxR = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n)));
+  const latMinR = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / n)));
+  return L.latLngBounds([latMinR * 180/Math.PI, lonMin], [latMaxR * 180/Math.PI, lonMax]);
+}
+
+// Map
+const map = L.map('map').setView([34.01, -118.325], 14);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 20, attribution: 'CartoDB'
+}).addTo(map);
+
+function occColor(occ) {
+  if (occ >= 50) return [178, 24, 43];
+  if (occ >= 11) return [239, 138, 98];
+  if (occ >= 6) return [253, 219, 199];
+  if (occ >= 3) return [103, 169, 207];
+  return [33, 102, 172];
+}
+
+// Canvas overlay for spots
+const CanvasOverlay = L.Layer.extend({
+  initialize(spots) { this._spots = spots; this._filtered = spots; },
+  onAdd(map) {
+    this._map = map;
+    this._el = L.DomUtil.create('canvas', 'leaflet-layer');
+    this._el.style.position = 'absolute';
+    this._el.style.pointerEvents = 'none';
+    map.getPanes().overlayPane.appendChild(this._el);
+    map.on('moveend zoomend resize', this._draw, this);
+    this._draw();
+  },
+  onRemove(map) {
+    map.getPanes().overlayPane.removeChild(this._el);
+    map.off('moveend zoomend resize', this._draw, this);
+  },
+  setFilter(minOcc, minConf) {
+    this._filtered = this._spots.filter(s => s[2] >= minOcc && s[3] >= minConf);
+    this._draw();
+    return this._filtered.length;
+  },
+  _draw() {
+    const map = this._map;
+    const size = map.getSize();
+    const el = this._el;
+    const dpr = window.devicePixelRatio || 1;
+    el.width = size.x * dpr;
+    el.height = size.y * dpr;
+    el.style.width = size.x + 'px';
+    el.style.height = size.y + 'px';
+    const topLeft = map.containerPointToLayerPoint([0, 0]);
+    L.DomUtil.setPosition(el, topLeft);
+    const ctx = el.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, size.x, size.y);
+    const zoom = map.getZoom();
+    const r = zoom >= 18 ? 3 : zoom >= 16 ? 2 : 1.5;
+    const bounds = map.getBounds();
+    let drawn = 0;
+    for (const s of this._filtered) {
+      if (s[0] < bounds.getSouth() || s[0] > bounds.getNorth() ||
+          s[1] < bounds.getWest() || s[1] > bounds.getEast()) continue;
+      const pt = map.latLngToContainerPoint([s[0], s[1]]);
+      const [cr, cg, cb] = occColor(s[2]);
+      ctx.fillStyle = `rgba(${cr},${cg},${cb},0.7)`;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      drawn++;
+    }
+    document.getElementById('stats').textContent =
+      `Showing ${drawn.toLocaleString()} / ${this._filtered.length.toLocaleString()} spots`;
+  }
+});
+
+let canvas = null;
+
+// Click handler — find nearest spot and inspect tile
+map.on('click', function(e) {
+  if (!allSpots.length) return;
+  const {lat, lng} = e.latlng;
+
+  // Find nearest spot within ~50m
+  let bestDist = Infinity, bestSpot = null;
+  const cosLat = Math.cos(lat * Math.PI / 180);
+  for (const s of allSpots) {
+    const dlat = (s[0] - lat) * 111320;
+    const dlon = (s[1] - lng) * 111320 * cosLat;
+    const d = dlat*dlat + dlon*dlon;
+    if (d < bestDist) { bestDist = d; bestSpot = s; }
+  }
+
+  if (!bestSpot || Math.sqrt(bestDist) > 50) return;
+
+  const tx = lonToTileX(bestSpot[1]);
+  const ty = latToTileY(bestSpot[0]);
+  currentTile = {tx, ty, lat: bestSpot[0], lon: bestSpot[1], occ: bestSpot[2]};
+  currentReleaseIdx = 0; // start with most recent
+
+  // Highlight tile boundary
+  if (tileHighlight) map.removeLayer(tileHighlight);
+  tileHighlight = L.rectangle(tileBounds(tx, ty), {
+    color: '#0ff', weight: 2, fillOpacity: 0.08, interactive: false
+  }).addTo(map);
+
+  openPanel();
+  loadTile();
+});
+
+// Panel
+function openPanel() {
+  document.getElementById('panel').classList.add('open');
+  // Shrink map to make room
+  document.getElementById('map').style.right = '420px';
+  map.invalidateSize();
+}
+function closePanel() {
+  document.getElementById('panel').classList.remove('open');
+  document.getElementById('map').style.right = '0';
+  map.invalidateSize();
+  if (tileHighlight) { map.removeLayer(tileHighlight); tileHighlight = null; }
+}
+document.getElementById('panel-close').onclick = closePanel;
+
+// Load tile with YOLO
+function loadTile() {
+  if (!currentTile || !releases.length) return;
+  const rel = releases[currentReleaseIdx];
+  const {tx, ty, lat, lon, occ} = currentTile;
+
+  document.getElementById('panel-title').textContent =
+    `Tile (${tx}, ${ty})`;
+  document.getElementById('panel-meta').textContent =
+    `Spot: ${lat.toFixed(5)}, ${lon.toFixed(5)} · Occupied ${occ}/191 releases`;
+  document.getElementById('release-date').textContent =
+    `${rel.capture_date} (${currentReleaseIdx + 1}/${releases.length})`;
+  document.getElementById('tile-img-wrap').innerHTML =
+    '<div class="loading">Downloading tile + running YOLO...</div>';
+  document.getElementById('det-list').innerHTML = '';
+
+  document.getElementById('btn-prev').disabled = currentReleaseIdx <= 0;
+  document.getElementById('btn-next').disabled = currentReleaseIdx >= releases.length - 1;
+
+  fetch(`/api/detect?tx=${tx}&ty=${ty}&rid=${rel.release_id}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        document.getElementById('tile-img-wrap').innerHTML =
+          `<div class="loading">Error: ${data.error}</div>`;
+        return;
+      }
+
+      // Show annotated tile image
+      const img = document.createElement('img');
+      img.src = 'data:image/jpeg;base64,' + data.image;
+      img.title = `Release ${data.release_id} · ${data.vehicle_count} vehicles`;
+      document.getElementById('tile-img-wrap').innerHTML = '';
+      document.getElementById('tile-img-wrap').appendChild(img);
+
+      // Detection table
+      let html = `<strong>${data.vehicle_count} vehicles detected</strong>`;
+      if (data.detections.length) {
+        html += '<table><tr><th>#</th><th>Conf</th><th>Size</th><th>Class</th></tr>';
+        data.detections.sort((a,b) => b.conf - a.conf);
+        for (let i = 0; i < data.detections.length; i++) {
+          const d = data.detections[i];
+          const cls = d.conf >= 0.5 ? 'conf-high' : d.conf >= 0.3 ? 'conf-med' : 'conf-low';
+          const label = d.cls === 10 ? 'small vehicle' : 'large vehicle';
+          html += `<tr><td>${i+1}</td><td class="${cls}">${d.conf}</td>` +
+                  `<td>${d.w}×${d.h}px</td><td>${label}</td></tr>`;
+        }
+        html += '</table>';
+      }
+      document.getElementById('det-list').innerHTML = html;
+    })
+    .catch(err => {
+      document.getElementById('tile-img-wrap').innerHTML =
+        `<div class="loading">Error: ${err.message}</div>`;
+    });
+}
+
+document.getElementById('btn-prev').onclick = () => {
+  if (currentReleaseIdx > 0) { currentReleaseIdx--; loadTile(); }
+};
+document.getElementById('btn-next').onclick = () => {
+  if (currentReleaseIdx < releases.length - 1) { currentReleaseIdx++; loadTile(); }
+};
+
+// Keyboard nav
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('panel').classList.contains('open')) return;
+  if (e.key === 'ArrowLeft' || e.key === '[') {
+    if (currentReleaseIdx > 0) { currentReleaseIdx--; loadTile(); }
+  } else if (e.key === 'ArrowRight' || e.key === ']') {
+    if (currentReleaseIdx < releases.length - 1) { currentReleaseIdx++; loadTile(); }
+  } else if (e.key === 'Escape') {
+    closePanel();
+  }
+});
+
+// Init
+Promise.all([
+  fetch('parking_spots.json').then(r => r.json()),
+  fetch('/api/releases').then(r => r.json()),
+]).then(([spots, rels]) => {
+  allSpots = spots;
+  releases = rels;
+  canvas = new CanvasOverlay(spots);
+  canvas.addTo(map);
+
+  const minOccSlider = document.getElementById('minOcc');
+  const minConfSlider = document.getElementById('minConf');
+  const minOccVal = document.getElementById('minOccVal');
+  const minConfVal = document.getElementById('minConfVal');
+  function updateFilter() {
+    const mo = parseInt(minOccSlider.value);
+    const mc = parseInt(minConfSlider.value) / 100;
+    minOccVal.textContent = mo;
+    minConfVal.textContent = mc.toFixed(2);
+    canvas.setFilter(mo, mc);
+  }
+  minOccSlider.addEventListener('input', updateFilter);
+  minConfSlider.addEventListener('input', updateFilter);
+});
+</script>
+</body>
+</html>

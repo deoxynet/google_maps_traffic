@@ -158,6 +158,22 @@ Branch protection helper:
 - [docs/branch_protection.md](docs/branch_protection.md)
 - `./scripts/configure_branch_protection.sh`
 
+## Web traffic simulator (`web-sim/`)
+
+Real-time WebGL2 particle simulation of DTLA traffic. Rust/WASM with 50K+ cars at 60fps.
+
+110K routed car spawns across 24 hours from three data sources:
+- **LEHD/LODES** census home→work commute flows (60K routes)
+- **LA County parcel** land use × ITE trip rates for non-work trips (20K routes)
+- **PeMS + NavigateLA** sensor-calibrated LP routes (30K routes)
+
+```bash
+cd web-sim && wasm-pack build --target web --release --out-dir ../web/pkg
+cd ../web && python3 serve.py    # http://localhost:8080
+```
+
+See [web-sim/README.md](web-sim/README.md) for architecture, data pipeline, and build details.
+
 ## Notes and caveats
 
 - This project is currently tuned for research/engineering workflows, not guaranteed production SLAs.

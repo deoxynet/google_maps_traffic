@@ -4,3 +4,27 @@
 /fuzz/artifacts
 /fuzz/coverage
 /artifacts
+
+# Large data files
+*.pbf
+*.pt
+*.db
+/data/
+/tile_cache/
+/pems_data/
+/dataset/
+/runs/
+__pycache__/
+.env
+training_status.json
+snapshot*.json*
+node_modules/
+.wrangler/
+
+# Generated web assets (large)
+web/graph.json
+web/graph.json.bak
+web/graph.json.gz
+web/lanes.json
+web/parking_spots.json
+web/pkg/

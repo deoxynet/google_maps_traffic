@@ -50,6 +50,22 @@ pub fn parse_proto_response(data: &[u8]) -> Result<Vec<TrafficTile>> {
     Ok(tiles)
 }
 
+/// Extract per-tile cache TTLs from a batched proto response.
+///
+/// The `f2` field in each tile wrapper message is a `fixed32` encoding a
+/// float32 TTL in seconds — the server's recommendation for how long the
+/// tile data should be considered fresh.
+pub(crate) fn parse_proto_cache_ttls(data: &[u8]) -> Result<Vec<f32>> {
+    let wrapper = ProtoMessage::parse(data)?;
+    let mut ttls = Vec::new();
+    for tile_msg in wrapper.get_messages(1) {
+        if let Some(raw) = tile_msg.get_fixed32(2) {
+            ttls.push(f32::from_bits(raw));
+        }
+    }
+    Ok(ttls)
+}
+
 /// Extract the TileCoord from the decrypted tile protobuf.
 ///
 /// The tile coordinate is stored in f1 as: f1.f1=zoom, f1.f2=x, f1.f3=y.

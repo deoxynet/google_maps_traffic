@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "web-sim"]
+
 [package]
 name = "google_maps_traffic"
 version = "0.1.0"
@@ -22,6 +25,9 @@ font8x8 = "0.3"
 gif = "0.13"
 image = "0.25"
 imageproc = "0.25"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+flate2 = "1"
 
 [[example]]
 name = "traffic"
@@ -41,3 +47,29 @@ required-features = ["osm"]
 name = "osm_stress"
 path = "examples/osm_stress.rs"
 required-features = ["osm"]
+
+[[example]]
+name = "poll_timing"
+path = "examples/poll_timing.rs"
+
+[[example]]
+name = "export_lanes"
+path = "examples/export_lanes.rs"
+
+[[example]]
+name = "export_graph"
+path = "examples/export_graph.rs"
+required-features = ["osm"]
+
+[[example]]
+name = "approach_congestion"
+path = "examples/approach_congestion.rs"
+
+[[example]]
+name = "extract_osm_features"
+path = "examples/extract_osm_features.rs"
+required-features = ["osm"]
+
+[[example]]
+name = "scrape_la"
+path = "examples/scrape_la.rs"

@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>YOLO OBB Annotation Tool</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #111; color: #ddd; display: flex; height: 100vh; overflow: hidden; }
+
+/* Left panel — queue */
+#queue-panel {
+  width: 220px; background: #1a1a1a; border-right: 1px solid #333;
+  display: flex; flex-direction: column; flex-shrink: 0;
+}
+#queue-header { padding: 10px 12px; border-bottom: 1px solid #333; }
+#queue-header h3 { font-size: 13px; margin-bottom: 6px; }
+#queue-controls { display: flex; gap: 4px; }
+#queue-controls button {
+  flex: 1; padding: 4px 8px; font-size: 11px; border: none; border-radius: 3px;
+  background: #333; color: #ddd; cursor: pointer;
+}
+#queue-controls button:hover { background: #555; }
+#queue-list {
+  flex: 1; overflow-y: auto; font-size: 12px;
+}
+.queue-item {
+  padding: 6px 12px; cursor: pointer; border-bottom: 1px solid #222;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.queue-item:hover { background: #252525; }
+.queue-item.active { background: #1a3a5c; }
+.queue-item .coords { color: #aaa; }
+.status-badge {
+  font-size: 10px; padding: 1px 5px; border-radius: 3px; font-weight: 600;
+}
+.status-unlabeled { background: #333; color: #888; }
+.status-bootstrapped { background: #553300; color: #fa0; }
+.status-verified { background: #003322; color: #0f6; }
+#queue-stats { padding: 8px 12px; border-top: 1px solid #333; font-size: 11px; color: #888; }
+
+/* Center — canvas */
+#canvas-panel {
+  flex: 1; display: flex; flex-direction: column; min-width: 0;
+}
+#top-bar {
+  display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+  background: #1a1a1a; border-bottom: 1px solid #333; font-size: 12px; flex-wrap: wrap;
+}
+#top-bar .tile-info { font-weight: 600; color: #fff; }
+#top-bar .shortcuts { color: #666; }
+#top-bar .shortcuts kbd {
+  background: #333; padding: 1px 5px; border-radius: 3px; color: #aaa;
+  font-family: monospace; font-size: 11px;
+}
+#canvas-wrap {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  background: #0a0a0a; overflow: hidden; position: relative;
+}
+#main-canvas { cursor: crosshair; image-rendering: pixelated; }
+.sam-spinner {
+  position: absolute; top: 8px; right: 8px; background: rgba(255,0,255,0.8);
+  color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 11px;
+  font-weight: 600; animation: pulse 0.6s ease-in-out infinite alternate;
+}
+@keyframes pulse { from { opacity: 0.6; } to { opacity: 1; } }
+
+/* Right panel — annotation list */
+#anno-panel {
+  width: 240px; background: #1a1a1a; border-left: 1px solid #333;
+  display: flex; flex-direction: column; flex-shrink: 0;
+}
+#anno-header { padding: 10px 12px; border-bottom: 1px solid #333; }
+#anno-header h3 { font-size: 13px; }
+#anno-list { flex: 1; overflow-y: auto; font-size: 12px; }
+.anno-item {
+  padding: 6px 12px; border-bottom: 1px solid #222; cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.anno-item:hover { background: #252525; }
+.anno-item.selected { background: #1a3a5c; border-left: 3px solid #4af; }
+.anno-item .detail { color: #888; font-size: 11px; }
+.anno-source-manual { color: #0f6; }
+.anno-source-bootstrap { color: #fa0; }
+.anno-source-sam { color: #f0f; }
+#anno-footer {
+  padding: 8px 12px; border-top: 1px solid #333;
+  display: flex; gap: 4px;
+}
+#anno-footer button {
+  flex: 1; padding: 6px; font-size: 11px; border: none; border-radius: 3px;
+  cursor: pointer;
+}
+#btn-save { background: #0a5; color: #fff; }
+#btn-save:hover { background: #0c7; }
+#btn-delete-selected { background: #600; color: #faa; }
+#btn-delete-selected:hover { background: #800; }
+
+/* Model info */
+#model-bar {
+  padding: 6px 12px; border-top: 1px solid #333; font-size: 11px; color: #888;
+  display: flex; align-items: center; gap: 6px;
+}
+#model-bar input {
+  flex: 1; background: #222; border: 1px solid #444; color: #ddd;
+  padding: 3px 6px; border-radius: 3px; font-size: 11px; font-family: monospace;
+}
+#model-bar button {
+  background: #333; color: #ddd; border: none; padding: 3px 8px;
+  border-radius: 3px; cursor: pointer; font-size: 11px;
+}
+#model-bar button:hover { background: #555; }
+
+/* Training status bar */
+#training-bar {
+  padding: 6px 12px; border-top: 1px solid #333; font-size: 11px;
+}
+#training-bar .train-row {
+  display: flex; align-items: center; gap: 6px;
+}
+#training-bar .train-status { flex: 1; }
+#training-bar button {
+  background: #333; color: #ddd; border: none; padding: 3px 8px;
+  border-radius: 3px; cursor: pointer; font-size: 11px;
+}
+#training-bar button:hover { background: #555; }
+#training-bar button:disabled { opacity: 0.3; cursor: default; }
+#train-progress-wrap {
+  height: 3px; background: #333; border-radius: 2px; margin-top: 4px;
+  overflow: hidden; display: none;
+}
+#train-progress-fill {
+  height: 100%; background: #f0f; width: 0%; transition: width 0.3s;
+}
+.train-idle { color: #666; }
+.train-exporting { color: #f0f; animation: pulse 0.6s ease-in-out infinite alternate; }
+.train-training { color: #f0f; }
+.train-done { color: #0f6; }
+.train-error { color: #f66; }
+
+/* Release nav */
+#release-bar {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 6px 14px; background: #1a1a1a; border-top: 1px solid #333; font-size: 12px;
+}
+#release-bar button {
+  background: #333; color: #fff; border: none; padding: 4px 12px;
+  border-radius: 3px; cursor: pointer; font-size: 11px;
+}
+#release-bar button:hover { background: #555; }
+#release-bar button:disabled { opacity: 0.3; cursor: default; }
+</style>
+</head>
+<body>
+
+<!-- Left: Queue -->
+<div id="queue-panel">
+  <div id="queue-header">
+    <h3>Labeling Queue</h3>
+    <div id="queue-controls">
+      <button onclick="loadQueue()">Refresh</button>
+      <button onclick="loadQueue(100)">Load 100</button>
+    </div>
+  </div>
+  <div id="queue-list"></div>
+  <div id="queue-stats">Loading...</div>
+  <div id="model-bar">
+    <input id="model-path" placeholder="Model path..." />
+    <button onclick="swapModel()">Swap</button>
+  </div>
+  <div id="training-bar">
+    <div class="train-row">
+      <span id="train-status" class="train-status train-idle">Training: idle</span>
+      <button id="btn-train" onclick="manualTrain()">Train</button>
+    </div>
+    <div id="train-progress-wrap">
+      <div id="train-progress-fill"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Center: Canvas -->
+<div id="canvas-panel">
+  <div id="top-bar">
+    <span class="tile-info" id="tile-info">No tile loaded</span>
+    <span id="status-display"></span>
+    <span class="shortcuts">
+      Drag SAM stroke
+      <kbd>Shift</kbd>+Drag manual box
+      <kbd>&#8984;Z</kbd> Undo
+      <kbd>S</kbd> Save
+      <kbd>D</kbd> Delete
+      <kbd>N</kbd>/<kbd>P</kbd> Next/Prev
+      <kbd>R</kbd> Release
+    </span>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="main-canvas" width="512" height="512"></canvas>
+  </div>
+  <div id="release-bar">
+    <button id="btn-prev-rel" disabled>&larr; Prev Release</button>
+    <span id="release-info">--</span>
+    <button id="btn-next-rel" disabled>Next Release &rarr;</button>
+  </div>
+</div>
+
+<!-- Right: Annotations -->
+<div id="anno-panel">
+  <div id="anno-header">
+    <h3>Annotations (<span id="anno-count">0</span>)</h3>
+  </div>
+  <div id="anno-list"></div>
+  <div id="anno-footer">
+    <button id="btn-save" onclick="saveAnnotations()">Save (S)</button>
+    <button id="btn-delete-selected" onclick="deleteSelected()">Delete (D)</button>
+  </div>
+</div>
+
+<script>
+const TILE_SIZE = 256;
+const SCALE = 2;
+const CANVAS_SIZE = TILE_SIZE * SCALE;
+const DRAG_THRESHOLD = 6; // pixels of movement before it counts as drag
+
+const canvas = document.getElementById('main-canvas');
+const ctx = canvas.getContext('2d');
+canvas.width = CANVAS_SIZE;
+canvas.height = CANVAS_SIZE;
+
+// State
+let releases = [];
+let queue = [];
+let queueIdx = -1;
+let currentTile = null; // {tile_x, tile_y}
+let currentReleaseIdx = 0;
+let tileImage = null; // HTMLImageElement for the raw tile
+let annotations = []; // [{cls, cx, cy, w, h, angle, source}]
+let selectedIdx = -1;
+let tileStatus = 'unlabeled';
+let dirty = false;
+let samPending = 0; // number of SAM requests in flight
+
+// Drawing state
+let drawState = null; // null | {phase, startX, startY, cx, cy, w, h, angle}
+
+// Undo stack — stores deep copies of annotations array
+let undoStack = [];
+const MAX_UNDO = 50;
+
+function pushUndo() {
+  undoStack.push(JSON.parse(JSON.stringify(annotations)));
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  annotations = undoStack.pop();
+  selectedIdx = -1;
+  dirty = true;
+  updateAnnoList();
+  redraw();
+}
+
+// Bootstrap prefetch cache: {key: string, promise: Promise}
+let prefetchCache = {};
+
+// --- Init ---
+async function init() {
+  const res = await fetch('/api/releases');
+  releases = await res.json();
+  loadQueue();
+  loadStats();
+}
+
+async function loadStats() {
+  try {
+    const res = await fetch('/api/annotate_stats');
+    const stats = await res.json();
+    const parts = [];
+    if (stats.verified) parts.push(`${stats.verified} verified`);
+    if (stats.bootstrapped) parts.push(`${stats.bootstrapped} bootstrapped`);
+    if (stats.unlabeled) parts.push(`${stats.unlabeled} unlabeled`);
+    parts.push(`${stats.total_annotations || 0} boxes total`);
+    document.getElementById('queue-stats').textContent = parts.join(' | ');
+  } catch(e) {
+    document.getElementById('queue-stats').textContent = 'Stats unavailable';
+  }
+}
+
+async function loadQueue(n = 50) {
+  const res = await fetch(`/api/sample?n=${n}`);
+  queue = await res.json();
+  renderQueue();
+}
+
+function renderQueue() {
+  const list = document.getElementById('queue-list');
+  list.innerHTML = queue.map((t, i) => {
+    const active = i === queueIdx ? ' active' : '';
+    const statusCls = `status-${t.status}`;
+    return `<div class="queue-item${active}" onclick="selectQueueItem(${i})">
+      <span class="coords">${t.tile_x}, ${t.tile_y}</span>
+      <span class="status-badge ${statusCls}">${t.status}</span>
+    </div>`;
+  }).join('');
+}
+
+async function selectQueueItem(idx) {
+  if (dirty) await saveAnnotations();
+  queueIdx = idx;
+  const t = queue[idx];
+  currentTile = { tile_x: t.tile_x, tile_y: t.tile_y };
+  currentReleaseIdx = 0;
+  renderQueue();
+  await loadCurrentTile();
+}
+
+// --- Bootstrap with prefetch ---
+function bootstrapKey(tx, ty, rid) {
+  return `${tx}_${ty}_${rid}`;
+}
+
+function prefetchBootstrap(tx, ty, rid) {
+  const key = bootstrapKey(tx, ty, rid);
+  if (prefetchCache[key]) return; // already prefetching
+  prefetchCache[key] = fetch(
+    `/api/bootstrap?tx=${tx}&ty=${ty}&rid=${rid}`,
+    { method: 'POST' }
+  ).then(r => r.json()).catch(() => null);
+}
+
+async function getBootstrap(tx, ty, rid) {
+  const key = bootstrapKey(tx, ty, rid);
+  if (prefetchCache[key]) {
+    const data = await prefetchCache[key];
+    delete prefetchCache[key];
+    return data;
+  }
+  // Not prefetched — fetch now
+  const res = await fetch(
+    `/api/bootstrap?tx=${tx}&ty=${ty}&rid=${rid}`,
+    { method: 'POST' }
+  );
+  return res.json();
+}
+
+function prefetchNext() {
+  if (!releases.length) return;
+  const nextIdx = queueIdx + 1;
+  if (nextIdx >= queue.length) return;
+  const t = queue[nextIdx];
+  const rid = releases[currentReleaseIdx].release_id;
+
+  // Prefetch bootstrap
+  prefetchBootstrap(t.tile_x, t.tile_y, rid);
+
+  // Prefetch tile image
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.src = `https://wayback.maptiles.arcgis.com/arcgis/rest/services/` +
+    `World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/` +
+    `${rid}/${19}/${t.tile_y}/${t.tile_x}`;
+}
+
+async function loadCurrentTile() {
+  if (!currentTile || !releases.length) return;
+  const { tile_x, tile_y } = currentTile;
+  const rel = releases[currentReleaseIdx];
+
+  document.getElementById('tile-info').textContent =
+    `Tile (${tile_x}, ${tile_y})`;
+  document.getElementById('release-info').textContent =
+    `${rel.capture_date} (${currentReleaseIdx + 1}/${releases.length})`;
+  document.getElementById('btn-prev-rel').disabled = currentReleaseIdx <= 0;
+  document.getElementById('btn-next-rel').disabled = currentReleaseIdx >= releases.length - 1;
+
+  // Load tile image directly from Wayback
+  tileImage = new Image();
+  tileImage.crossOrigin = 'anonymous';
+  tileImage.onload = () => redraw();
+  tileImage.src = `https://wayback.maptiles.arcgis.com/arcgis/rest/services/` +
+    `World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/` +
+    `${rel.release_id}/${19}/${tile_y}/${tile_x}`;
+
+  // Check for existing annotations first
+  let hasExisting = false;
+  try {
+    const res = await fetch(`/api/annotations?tx=${tile_x}&ty=${tile_y}&rid=${rel.release_id}`);
+    const data = await res.json();
+    if (data.annotations && data.annotations.length > 0) {
+      annotations = data.annotations;
+      tileStatus = data.status;
+      hasExisting = true;
+    }
+  } catch(e) {}
+
+  // Auto-bootstrap if no existing annotations
+  if (!hasExisting) {
+    document.getElementById('tile-info').textContent = 'Bootstrapping...';
+    try {
+      const data = await getBootstrap(tile_x, tile_y, rel.release_id);
+      if (data && data.ok) {
+        annotations = data.annotations;
+        tileStatus = 'bootstrapped';
+        if (queueIdx >= 0) {
+          queue[queueIdx].status = 'bootstrapped';
+          renderQueue();
+        }
+      } else {
+        annotations = [];
+        tileStatus = 'unlabeled';
+      }
+    } catch(e) {
+      annotations = [];
+      tileStatus = 'unlabeled';
+    }
+    document.getElementById('tile-info').textContent =
+      `Tile (${tile_x}, ${tile_y})`;
+  }
+
+  selectedIdx = -1;
+  dirty = false;
+  undoStack = [];
+  updateAnnoList();
+  updateStatusDisplay();
+  redraw();
+
+  // Prefetch the next tile in queue
+  prefetchNext();
+}
+
+function updateStatusDisplay() {
+  const el = document.getElementById('status-display');
+  const cls = `status-${tileStatus}`;
+  el.innerHTML = `<span class="status-badge ${cls}">${tileStatus}</span>`;
+}
+
+// --- Drawing ---
+function redraw() {
+  ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+  // Draw tile image
+  if (tileImage && tileImage.complete && tileImage.naturalWidth) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(tileImage, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+  } else {
+    ctx.fillStyle = '#222';
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    ctx.fillStyle = '#666';
+    ctx.font = '14px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loading tile...', CANVAS_SIZE / 2, CANVAS_SIZE / 2);
+  }
+
+  // Draw annotations
+  for (let i = 0; i < annotations.length; i++) {
+    drawOBB(annotations[i], i === selectedIdx, i);
+  }
+
+  // Draw in-progress box
+  if (drawState && drawState.phase === 'sizing') {
+    drawOBBFromParams(drawState.cx, drawState.cy, drawState.w, drawState.h, drawState.angle, '#f0f', false);
+  }
+}
+
+function drawOBB(anno, selected, idx) {
+  let color;
+  if (selected) {
+    color = '#4af';
+  } else if (anno.source === 'sam') {
+    color = '#f0f';
+  } else if (anno.source === 'bootstrap') {
+    color = '#fa0';
+  } else {
+    color = '#0f6';
+  }
+  drawOBBFromParams(anno.cx * SCALE, anno.cy * SCALE, anno.w * SCALE, anno.h * SCALE, anno.angle, color, selected);
+}
+
+function drawOBBFromParams(cx, cy, w, h, angle, color, selected) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = selected ? 2.5 : 1.5;
+  ctx.strokeRect(-w / 2, -h / 2, w, h);
+
+  if (selected) {
+    ctx.fillStyle = color + '30';
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+
+    // Corner handles
+    const hw = w / 2, hh = h / 2;
+    ctx.fillStyle = color;
+    for (const [sx, sy] of [[-1,-1],[1,-1],[1,1],[-1,1]]) {
+      ctx.beginPath();
+      ctx.arc(sx * hw, sy * hh, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.restore();
+}
+
+// --- Hit testing ---
+function hitTest(mx, my) {
+  for (let i = annotations.length - 1; i >= 0; i--) {
+    if (pointInOBB(mx, my, annotations[i])) return i;
+  }
+  return -1;
+}
+
+function pointInOBB(px, py, anno) {
+  const cx = anno.cx * SCALE, cy = anno.cy * SCALE;
+  const cos = Math.cos(-anno.angle), sin = Math.sin(-anno.angle);
+  const dx = px - cx, dy = py - cy;
+  const lx = dx * cos - dy * sin;
+  const ly = dx * sin + dy * cos;
+  const hw = anno.w * SCALE / 2, hh = anno.h * SCALE / 2;
+  return Math.abs(lx) <= hw && Math.abs(ly) <= hh;
+}
+
+function hitCorner(mx, my, anno) {
+  const cx = anno.cx * SCALE, cy = anno.cy * SCALE;
+  const hw = anno.w * SCALE / 2, hh = anno.h * SCALE / 2;
+  const cos = Math.cos(anno.angle), sin = Math.sin(anno.angle);
+  const corners = [[-1,-1],[1,-1],[1,1],[-1,1]];
+  for (let i = 0; i < 4; i++) {
+    const [sx, sy] = corners[i];
+    const x = cx + (sx * hw * cos - sy * hh * sin);
+    const y = cy + (sx * hw * sin + sy * hh * cos);
+    if (Math.hypot(mx - x, my - y) < 8) return i;
+  }
+  return -1;
+}
+
+// --- Mouse interaction ---
+// Drag on empty space = SAM stroke (paint points along car). Shift+drag = manual box.
+// Click (no drag) on empty space = SAM single point. Click on annotation = select/move.
+let dragState = null;
+let mouseDownPos = null; // {mx, my, shiftKey} — track to distinguish click vs drag
+let samStrokePoints = []; // [{x, y}] — collected during SAM stroke drag
+
+canvas.addEventListener('mousedown', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (CANVAS_SIZE / rect.width);
+  const my = (e.clientY - rect.top) * (CANVAS_SIZE / rect.height);
+  mouseDownPos = { mx, my, shiftKey: e.shiftKey };
+
+  // Check if clicking on selected annotation's corner (immediate drag)
+  if (selectedIdx >= 0) {
+    const corner = hitCorner(mx, my, annotations[selectedIdx]);
+    if (corner >= 0) {
+      pushUndo();
+      dragState = {
+        type: 'resize', idx: selectedIdx, cornerIdx: corner,
+        startMx: mx, startMy: my,
+        origAnno: { ...annotations[selectedIdx] },
+      };
+      mouseDownPos = null; // not a click
+      return;
+    }
+  }
+
+  // Check hit on any annotation (select + start potential move)
+  const hit = hitTest(mx, my);
+  if (hit >= 0) {
+    selectedIdx = hit;
+    pushUndo();
+    dragState = {
+      type: 'move', idx: hit,
+      startMx: mx, startMy: my,
+      origAnno: { ...annotations[hit] },
+      moved: false,
+    };
+    mouseDownPos = null; // not a SAM click
+    updateAnnoList();
+    redraw();
+    return;
+  }
+
+  // Empty space — will be resolved on mouseup: click = SAM point, drag = SAM stroke or manual box
+  selectedIdx = -1;
+  samStrokePoints = [];
+  updateAnnoList();
+  redraw();
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (CANVAS_SIZE / rect.width);
+  const my = (e.clientY - rect.top) * (CANVAS_SIZE / rect.height);
+
+  // Moving an annotation
+  if (dragState) {
+    const anno = annotations[dragState.idx];
+    if (dragState.type === 'move') {
+      const dx = (mx - dragState.startMx) / SCALE;
+      const dy = (my - dragState.startMy) / SCALE;
+      anno.cx = dragState.origAnno.cx + dx;
+      anno.cy = dragState.origAnno.cy + dy;
+      dragState.moved = true;
+      dirty = true;
+    } else if (dragState.type === 'resize') {
+      const cx = anno.cx * SCALE, cy = anno.cy * SCALE;
+      const cos = Math.cos(-anno.angle), sin = Math.sin(-anno.angle);
+      const dx = mx - cx, dy = my - cy;
+      const lx = dx * cos - dy * sin;
+      const ly = dx * sin + dy * cos;
+      anno.w = Math.max(4, Math.abs(lx) * 2 / SCALE);
+      anno.h = Math.max(4, Math.abs(ly) * 2 / SCALE);
+      dirty = true;
+    }
+    redraw();
+    return;
+  }
+
+  // Dragging from empty space
+  if (mouseDownPos) {
+    const dist = Math.hypot(mx - mouseDownPos.mx, my - mouseDownPos.my);
+    if (dist > DRAG_THRESHOLD) {
+      if (mouseDownPos.shiftKey) {
+        // Shift+drag = manual bounding box
+        drawState = {
+          phase: 'sizing',
+          startX: mouseDownPos.mx, startY: mouseDownPos.my,
+          cx: (mouseDownPos.mx + mx) / 2,
+          cy: (mouseDownPos.my + my) / 2,
+          w: Math.abs(mx - mouseDownPos.mx),
+          h: Math.abs(my - mouseDownPos.my),
+          angle: 0,
+        };
+        mouseDownPos = null; // consumed — now it's a manual draw
+        redraw();
+      } else {
+        // Regular drag = SAM stroke — start collecting points
+        samStrokePoints = [
+          { x: mouseDownPos.mx / SCALE, y: mouseDownPos.my / SCALE },
+          { x: mx / SCALE, y: my / SCALE },
+        ];
+        mouseDownPos = null; // consumed — now it's a SAM stroke
+        redraw();
+        drawSamStroke();
+      }
+    }
+    return;
+  }
+
+  // Active manual box draw (Shift+drag)
+  if (drawState && drawState.phase === 'sizing') {
+    drawState.cx = (drawState.startX + mx) / 2;
+    drawState.cy = (drawState.startY + my) / 2;
+    drawState.w = Math.abs(mx - drawState.startX);
+    drawState.h = Math.abs(my - drawState.startY);
+    redraw();
+    return;
+  }
+
+  // Active SAM stroke — collect points (sample every ~6px for density)
+  if (samStrokePoints.length > 0) {
+    const lastPt = samStrokePoints[samStrokePoints.length - 1];
+    const d = Math.hypot(mx / SCALE - lastPt.x, my / SCALE - lastPt.y);
+    if (d >= 3) { // ~3 tile-pixels apart
+      samStrokePoints.push({ x: mx / SCALE, y: my / SCALE });
+      redraw();
+      drawSamStroke();
+    }
+  }
+});
+
+canvas.addEventListener('mouseup', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (CANVAS_SIZE / rect.width);
+  const my = (e.clientY - rect.top) * (CANVAS_SIZE / rect.height);
+
+  // Finished dragging an annotation
+  if (dragState) {
+    dragState = null;
+    updateAnnoList();
+    return;
+  }
+
+  // Finished drawing a manual box (Shift+drag)
+  if (drawState && drawState.phase === 'sizing') {
+    if (drawState.w > DRAG_THRESHOLD && drawState.h > DRAG_THRESHOLD) {
+      pushUndo();
+      // At z19 (~0.3m/px), large vehicle (truck/bus) > ~27px long
+      const longSide = Math.max(drawState.w, drawState.h) / SCALE;
+      annotations.push({
+        cls: longSide > 27 ? 9 : 10,  // 9=large, 10=small vehicle
+        cx: drawState.cx / SCALE,
+        cy: drawState.cy / SCALE,
+        w: drawState.w / SCALE,
+        h: drawState.h / SCALE,
+        angle: drawState.angle,
+        source: 'manual',
+      });
+      selectedIdx = annotations.length - 1;
+      dirty = true;
+      updateAnnoList();
+    }
+    drawState = null;
+    redraw();
+    return;
+  }
+
+  // Finished SAM stroke — send all collected points
+  if (samStrokePoints.length > 0) {
+    const points = samStrokePoints.map(p => [p.x, p.y]);
+    samStrokePoints = [];
+    samClickMulti(points);
+    return;
+  }
+
+  // Plain click (no drag) on empty space → SAM single point
+  if (mouseDownPos && currentTile && releases.length) {
+    const dist = Math.hypot(mx - mouseDownPos.mx, my - mouseDownPos.my);
+    if (dist <= DRAG_THRESHOLD) {
+      samClickMulti([[mx / SCALE, my / SCALE]]);
+    }
+  }
+  mouseDownPos = null;
+});
+
+function drawSamStroke() {
+  // Draw magenta dots along the SAM stroke path
+  ctx.save();
+  ctx.fillStyle = '#f0f';
+  for (const pt of samStrokePoints) {
+    ctx.beginPath();
+    ctx.arc(pt.x * SCALE, pt.y * SCALE, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Connect with thin line
+  if (samStrokePoints.length > 1) {
+    ctx.strokeStyle = 'rgba(255, 0, 255, 0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(samStrokePoints[0].x * SCALE, samStrokePoints[0].y * SCALE);
+    for (let i = 1; i < samStrokePoints.length; i++) {
+      ctx.lineTo(samStrokePoints[i].x * SCALE, samStrokePoints[i].y * SCALE);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Scroll to rotate selected box
+let lastWheelTime = 0;
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (selectedIdx >= 0) {
+    // Push undo once per rotation gesture (debounce 500ms)
+    const now = Date.now();
+    if (now - lastWheelTime > 500) pushUndo();
+    lastWheelTime = now;
+    const step = e.shiftKey ? 0.01 : 0.05;
+    annotations[selectedIdx].angle += e.deltaY > 0 ? step : -step;
+    dirty = true;
+    redraw();
+  }
+}, { passive: false });
+
+// --- Annotation list ---
+function updateAnnoList() {
+  document.getElementById('anno-count').textContent = annotations.length;
+  const list = document.getElementById('anno-list');
+  list.innerHTML = annotations.map((a, i) => {
+    const sel = i === selectedIdx ? ' selected' : '';
+    const srcCls = `anno-source-${a.source}`;
+    return `<div class="anno-item${sel}" onclick="selectAnno(${i})">
+      <span>
+        #${i + 1} <span class="detail">${a.w.toFixed(1)}x${a.h.toFixed(1)} @ ${(a.angle * 180 / Math.PI).toFixed(0)}deg</span>
+      </span>
+      <span class="${srcCls}">${a.source}</span>
+    </div>`;
+  }).join('');
+}
+
+function selectAnno(idx) {
+  selectedIdx = idx;
+  updateAnnoList();
+  redraw();
+}
+
+function deleteSelected() {
+  if (selectedIdx >= 0) {
+    pushUndo();
+    annotations.splice(selectedIdx, 1);
+    selectedIdx = -1;
+    dirty = true;
+    updateAnnoList();
+    redraw();
+  }
+}
+
+// --- Save ---
+async function saveAnnotations() {
+  if (!currentTile || !releases.length) return;
+  const rel = releases[currentReleaseIdx];
+  const body = {
+    tile_x: currentTile.tile_x,
+    tile_y: currentTile.tile_y,
+    release_id: rel.release_id,
+    status: 'verified',
+    annotations: annotations,
+  };
+  try {
+    const res = await fetch('/api/annotations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      dirty = false;
+      tileStatus = 'verified';
+      updateStatusDisplay();
+      if (queueIdx >= 0) {
+        queue[queueIdx].status = 'verified';
+        renderQueue();
+      }
+      loadStats();
+      // Check if training was triggered
+      setTimeout(pollTrainingStatus, 1000);
+    }
+  } catch(e) {
+    alert('Save failed: ' + e.message);
+  }
+}
+
+// --- SAM click-to-segment ---
+function showSamSpinner(show) {
+  let el = document.querySelector('.sam-spinner');
+  if (show && !el) {
+    el = document.createElement('div');
+    el.className = 'sam-spinner';
+    el.textContent = 'SAM...';
+    document.getElementById('canvas-wrap').appendChild(el);
+  } else if (!show && el) {
+    el.remove();
+  }
+}
+
+async function samClickMulti(points) {
+  if (!currentTile || !releases.length) return;
+  const rel = releases[currentReleaseIdx];
+
+  // Show spinner
+  samPending++;
+  showSamSpinner(true);
+
+  try {
+    const res = await fetch('/api/sam_click', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tile_x: currentTile.tile_x,
+        tile_y: currentTile.tile_y,
+        release_id: rel.release_id,
+        points: points,
+      }),
+    });
+    const data = await res.json();
+    if (data.ok && data.annotation) {
+      pushUndo();
+      annotations.push(data.annotation);
+      selectedIdx = annotations.length - 1;
+      dirty = true;
+      updateAnnoList();
+    } else {
+      console.warn('SAM:', data.error || 'no result');
+    }
+  } catch(e) {
+    console.error('SAM failed:', e);
+  }
+
+  samPending--;
+  if (samPending <= 0) {
+    samPending = 0;
+    showSamSpinner(false);
+  }
+  redraw();
+}
+
+// --- Keyboard ---
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  if (e.key.toLowerCase() === 'z' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    undo();
+    return;
+  }
+
+  switch(e.key.toLowerCase()) {
+    case 's':
+      e.preventDefault();
+      saveAnnotations();
+      break;
+    case 'd':
+    case 'delete':
+    case 'backspace':
+      deleteSelected();
+      break;
+    case 'n':
+    case 'arrowdown':
+      if (queueIdx < queue.length - 1) selectQueueItem(queueIdx + 1);
+      break;
+    case 'p':
+    case 'arrowup':
+      if (queueIdx > 0) selectQueueItem(queueIdx - 1);
+      break;
+    case 'r':
+      cycleRelease();
+      break;
+    case 'escape':
+      selectedIdx = -1;
+      drawState = null;
+      mouseDownPos = null;
+      updateAnnoList();
+      redraw();
+      break;
+  }
+});
+
+function cycleRelease() {
+  if (!releases.length) return;
+  currentReleaseIdx = (currentReleaseIdx + 1) % releases.length;
+  loadCurrentTile();
+}
+
+document.getElementById('btn-prev-rel').onclick = () => {
+  if (currentReleaseIdx > 0) { currentReleaseIdx--; loadCurrentTile(); }
+};
+document.getElementById('btn-next-rel').onclick = () => {
+  if (currentReleaseIdx < releases.length - 1) { currentReleaseIdx++; loadCurrentTile(); }
+};
+
+// --- Model swap ---
+async function loadModelInfo() {
+  try {
+    const res = await fetch('/api/model');
+    const data = await res.json();
+    document.getElementById('model-path').value = data.model;
+  } catch(e) {}
+}
+
+async function swapModel() {
+  const path = document.getElementById('model-path').value.trim();
+  if (!path) return;
+  try {
+    const res = await fetch('/api/model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      alert('Model swap failed: ' + data.error);
+    } else {
+      document.getElementById('model-path').value = data.model;
+    }
+  } catch(e) {
+    alert('Model swap failed: ' + e.message);
+  }
+}
+
+// --- Training status polling ---
+let trainPollTimer = null;
+let trainPollInterval = 10000; // slow by default
+
+async function pollTrainingStatus() {
+  try {
+    const res = await fetch('/api/training_status');
+    const status = await res.json();
+    updateTrainingUI(status);
+  } catch(e) {}
+  scheduleTrainPoll();
+}
+
+function updateTrainingUI(status) {
+  const el = document.getElementById('train-status');
+  const bar = document.getElementById('train-progress-wrap');
+  const fill = document.getElementById('train-progress-fill');
+  const btn = document.getElementById('btn-train');
+
+  switch (status.state) {
+    case 'idle':
+      el.textContent = 'Training: idle';
+      el.className = 'train-status train-idle';
+      bar.style.display = 'none';
+      btn.disabled = false;
+      trainPollInterval = 10000;
+      break;
+    case 'exporting':
+      el.textContent = 'Exporting dataset...';
+      el.className = 'train-status train-exporting';
+      bar.style.display = 'block';
+      fill.style.width = '0%';
+      btn.disabled = true;
+      trainPollInterval = 2000;
+      break;
+    case 'training':
+      const epoch = status.epoch || 0;
+      const total = status.total_epochs || 15;
+      el.textContent = `Training: epoch ${epoch}/${total}`;
+      el.className = 'train-status train-training';
+      bar.style.display = 'block';
+      fill.style.width = `${(epoch / total * 100).toFixed(1)}%`;
+      btn.disabled = true;
+      trainPollInterval = 2000;
+      break;
+    case 'done':
+      const name = status.run_name || 'done';
+      el.textContent = `Model updated: ${name}`;
+      el.className = 'train-status train-done';
+      bar.style.display = 'block';
+      fill.style.width = '100%';
+      btn.disabled = false;
+      trainPollInterval = 10000;
+      // Refresh model info and stats
+      loadModelInfo();
+      loadStats();
+      break;
+    case 'error':
+      el.textContent = `Training error: ${(status.error || '').slice(0, 60)}`;
+      el.className = 'train-status train-error';
+      bar.style.display = 'none';
+      btn.disabled = false;
+      trainPollInterval = 10000;
+      break;
+  }
+}
+
+function scheduleTrainPoll() {
+  if (trainPollTimer) clearTimeout(trainPollTimer);
+  trainPollTimer = setTimeout(pollTrainingStatus, trainPollInterval);
+}
+
+async function manualTrain() {
+  const btn = document.getElementById('btn-train');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/training_start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    const data = await res.json();
+    if (data.error) {
+      alert('Train: ' + data.error);
+      btn.disabled = false;
+    } else {
+      // Immediately poll for status
+      setTimeout(pollTrainingStatus, 500);
+    }
+  } catch(e) {
+    alert('Train failed: ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+// --- Start ---
+init();
+loadModelInfo();
+pollTrainingStatus();
+</script>
+</body>
+</html>
