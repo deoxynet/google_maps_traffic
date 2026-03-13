@@ -44,6 +44,7 @@ jobs:
             echo "Uploading $filepath → r2://gmaps-traffic/$r2_key"
             aws s3 cp "$filepath" "s3://gmaps-traffic/$r2_key" \
               --endpoint-url "$R2_ENDPOINT" \
-              --content-type application/gzip
+              --content-type application/gzip \
+              --storage-class STANDARD_IA
           done < upload_manifest.txt
           echo "All uploads complete"
