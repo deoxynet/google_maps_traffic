@@ -33,23 +33,14 @@ jobs:
           echo "R2_KEY=$R2_KEY" >> "$GITHUB_ENV"
           echo "Destination: $R2_KEY"
 
-      - name: Install wrangler
-        run: npm install -g wrangler
-
-      - name: Configure wrangler auth
-        run: |
-          mkdir -p "$HOME/.config/.wrangler/config"
-          cat > "$HOME/.config/.wrangler/config/default.toml" << EOF
-          oauth_token = "placeholder"
-          refresh_token = "${{ secrets.WRANGLER_REFRESH_TOKEN }}"
-          EOF
-
       - name: Upload to R2
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
         run: |
-          wrangler r2 object put "gmaps-traffic/${{ env.R2_KEY }}" \
-            --file snapshot.json.gz \
-            --content-type application/gzip \
-            --remote
+          aws s3 cp snapshot.json.gz \
+            "s3://gmaps-traffic/${{ env.R2_KEY }}" \
+            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --content-type application/gzip
           echo "Uploaded to r2://gmaps-traffic/${{ env.R2_KEY }}"
