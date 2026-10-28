@@ -87,7 +87,7 @@ python3 scripts/parking_sim/build_app.py           # Curb Finder app page (optim
     - Inner faces of divided roads get zero capacity. These are parallel one-way carriageways of the same street within 25 m.
     - Subtracting tickets per face is right on average but noisy, because tickets are written where parking pressure is high. That is why the share is pooled.
   - **Rules.** Weekly 15-minute calendars:
-    - posted street sweeping, by week of the month. Which side is swept on which day is learned per (route, street, side) from where sweep tickets land: deriving the day from half the tickets matched the other half 84% of the time, vs 50% for the old north/east-first convention, which is now only the fallback;
+    - posted street sweeping, by week of the month. Which side is swept on which day is learned per (route, street, house-number parity) from sweep tickets. LA puts odd numbers on the north side of E-W streets and the west side of N-S streets. The two parities fall on different days 97% of the time, and odd vs even days of the month agree 99%. The north/east-first convention is only the fallback. (Until 2026-10-28 the side came from where tickets snapped. Ticket coordinates sit near the centerline, so that put both sides of 41% of ticket-learned blocks on the same day.);
     - permit-district hours, from preferential-parking tickets pooled within 150 m;
     - meter paid hours, max stay, and tow-away windows;
     - posted time limits, from the hours over-time-limit tickets are written. The limit itself isn't in the tickets, so it is assumed to be 2 h. The optimizer and app skip faces whose legal stay at arrival is shorter than the planned stay (`--stay`);
@@ -164,7 +164,7 @@ Ranges are across 3 seeds:
 | Saturday midday | ρ 0.29–0.34 |
 | Wednesday midday | ρ 0.10–0.13 |
 
-Wednesday midday was 0.21 with the old north/east convention for sweeping sides (`PARKSIM_SWEEP_SIDE=convention`); nothing else changed. The ticket-derived sides stay: they predict held-out sweep tickets' days 84% of the time, vs 50% for the convention. The reason Wednesday looks worse: the 2010 aerial is a Monday around 12–2pm, not a Wednesday (see the region section below), so Wednesday's sweeps empty different sides than the photo shows.
+Wednesday midday was 0.21 with the old north/east convention for sweeping sides (`PARKSIM_SWEEP_SIDE=convention`); nothing else changed. (Those ticket-derived sides were later found to put both sides of 41% of blocks on the same day, and were replaced by sides from address parity; see the region section.) The reason Wednesday looks worse: the 2010 aerial is a Monday around 12–2pm, not a Wednesday (see the region section below), so Wednesday's sweeps empty different sides than the photo shows.
 
 Overnight stock for commercial cells was tested with `PARKSIM_NIGHT_EXTRA=0.25`, i.e. 25% of the satellite-predicted stock in cells without residential parcels counts as overnight residents. Saturday midday fell to 0.18, night to 0.29 and the sweeping level to 26 vs 36, with permit spillover about flat. Midday cars on those streets really do stand in for overnight demand (likely nearby apartment residents), so the default stays at 1.0.
 
@@ -196,6 +196,20 @@ What it shows:
   - A 2% commuter curb share (`PARKSIM_COMMUTER_CURB=0.02`), which also pushed sweeping levels further from the tickets (South LA 52 vs 38).
   The night anchor rescales residents so the midday total still matches, so cutting other demand mostly adds residents back. The blur comes from overall saturation and overflow, not one component. Defaults stay.
 - **Search-path optimizer, region-wide** (`evaluate_routes.py --dests 40`, probes in a fresh seed): 4.7 vs 8.6 min to the door over 1,200 paired trips; optimized faster or equal in 82%. Planned times run about 1–1.5 min high, so the app is conservative.
+
+**Sweep sides from address parity (2026-10-28).** Snapped tickets agree with the parity convention only 59% of the time, so the old snapped-face sides were mostly noise.
+- Keyed by (route, street, parity): blocks with both sides swept the same day fell from 35% to 10% in K-town, and from 41% to 4% among ticket-learned blocks. Ticket-learned blocks rose from 1,444 to 3,145.
+- On the 2010 aerial, the side swept Monday holds 0.68× the other side's cars, vs 0.77× with the old sides.
+- One seed per box, old → new:
+
+  | Box | Monday midday | Wednesday midday | Sweeping |
+  |---|---|---|---|
+  | K-town core | 0.26 → 0.30 | 0.16 → 0.20 | 0.86 → 0.86 |
+  | Mid-City–Fairfax | 0.29 → 0.30 | — | 0.89 → 0.91 |
+  | Koreatown–Westlake | 0.18 → 0.18 | — | 0.55 → 0.55 |
+  | South LA | 0.40 → 0.37 | — | 0.78 → 0.81 |
+
+- Night and permit checks barely move, since they pool both sides. The table above predates this fix.
 
 To reproduce one box: `PARKSIM_REGION=sim_area PARKSIM_HOLDOUT=33.965,34.02,-118.395,-118.255 PARKSIM_OUT=/tmp/v PARKSIM_PAR=3 python3 scripts/parking_sim/validate.py` (about 3 min, 4 GB). Add `PARKSIM_REUSE=1` to rescore saved days.
 

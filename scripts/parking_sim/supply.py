@@ -313,9 +313,13 @@ def sweeping(faces, curb_ll, samples=None):
     """Per face: (weekday, slot) list and allowed weeks of the month, from posted LA routes.
 
     Route pairs sweep the two sides of a street on different days, and the data doesn't say which side is which.
-    Sweep tickets do: pooled per (route, street, side of street), the day inferred from half the 2023+ tickets
-    matched the other half 84% of the time (convention: 50%). Groups with >= 20 tickets and >= 58% on one day use
-    it; the rest fall back to the convention (north/east side takes the earlier day)."""
+    Sweep tickets do, through the house number: LA puts odd numbers on the north side of E-W streets and the west
+    side of N-S streets. (Ticket coordinates sit near the centerline, so the face a ticket snaps to gives the street
+    but not the side: snapped side and parity agree only 59% of the time. Learning sides from the snapped face put
+    both sides of 41% of blocks on the same day.) Pooled per (route, street, parity), 92% of tickets fall on one day
+    (median); the two parities land on different days 97% of the time; odd vs even days of the month agree 99%.
+    Groups with >= 20 tickets and >= 58% on one day use it; the rest fall back to the convention (north/east side
+    takes the earlier day). On the 2010 aerial, sides swept that day hold fewer cars than with the old method."""
     db = sqlite3.connect(f"file:{LA_PARKING_DB / 'street_sweeping.db'}?mode=ro", uri=True)
     R = db.execute("select route, start_time, end_time, sweep_days, week_1, week_2, week_3, week_4, is_weekly, geometry "
                    "from routes where city='la' and geometry is not null and start_time is not null").fetchall()
@@ -329,10 +333,12 @@ def sweeping(faces, curb_ll, samples=None):
     hm = lambda s: int(s[:2]) + int(s[3:5]) / 60
     # learn each (route, street, side)'s day from where sweep tickets land
     street = street_names(faces)
-    ne = []
+    ne, odd = [], []
     for f in faces:
         n = f["normal"]
-        ne.append(n[1] > 0 if abs(n[1]) >= abs(n[0]) else n[0] > 0)
+        ew = abs(n[1]) >= abs(n[0])
+        ne.append(n[1] > 0 if ew else n[0] > 0)       # north / east side
+        odd.append(int(n[1] > 0 if ew else n[0] < 0))  # side with odd house numbers: north / west
     tick_day = {}
     if samples is not None and os.environ.get("PARKSIM_SWEEP_SIDE") != "convention":
         pts, owner = samples
@@ -341,9 +347,9 @@ def sweeping(faces, curb_ll, samples=None):
         ok = np.isfinite(d)
         face_route = {f: names[g] for f, g in zip(fi, gi)}
         counts = defaultdict(lambda: np.zeros(7))
-        for f, wd in zip(owner[j[ok]], C[ok, 2].astype(int)):
-            if f in face_route:
-                counts[(face_route[f], street[f], ne[f])][wd] += 1
+        for f, wd, par in zip(owner[j[ok]], C[ok, 2].astype(int), C[ok, 5].astype(int)):
+            if f in face_route and street[f]:
+                counts[(face_route[f], street[f], par)][wd] += 1
         for key, c in counts.items():
             days = sorted({d for r in groups[key[0]] for d in (json.loads(r[3]) or [])})
             if len(days) == 2 and c[days].sum() >= 20 and c[days].max() / c[days].sum() >= 0.58:
@@ -351,7 +357,7 @@ def sweeping(faces, curb_ll, samples=None):
     sweep = {}
     for f, gidx in zip(fi, gi):
         rs = sorted(groups[names[gidx]], key=lambda r: (json.loads(r[3]) or [9])[0])
-        day = tick_day.get((names[gidx], street[f], ne[f]))
+        day = tick_day.get((names[gidx], street[f], odd[f]))
         if day is not None:
             r = next((r for r in rs if day in (json.loads(r[3]) or [])), rs[0])
             source = "tickets"
