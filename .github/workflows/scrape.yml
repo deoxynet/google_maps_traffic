@@ -2,13 +2,26 @@ name: Traffic Scraper
 
 on:
   schedule:
-    # Every 5 minutes during peak hours (5 AM - 10 PM PST = 13:00 - 06:00 UTC)
-    - cron: '*/5 13-23 * * *'  # 1 PM - 11 PM UTC (5 AM - 3 PM PST)
-    - cron: '*/5 0-6 * * *'    # 12 AM - 6 AM UTC (4 PM - 10 PM PST)
+    # Every 5 minutes, around the clock (overnight snapshots give the free-flow baseline)
+    - cron: '*/5 * * * *'
+    # Weekly keepalive: GitHub disables scheduled workflows in public repos after 60 days without activity
+    - cron: '17 12 * * 1'
   workflow_dispatch:
 
 jobs:
+  keepalive:
+    if: github.event.schedule == '17 12 * * 1'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Re-enable this workflow (resets the inactivity timer)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/scrape.yml/enable"
+
   scrape:
+    if: github.event.schedule != '17 12 * * 1'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
