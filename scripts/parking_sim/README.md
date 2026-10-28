@@ -123,6 +123,19 @@ Two validation choices to keep:
 - The data stays useful for arterial drive times by hour in the search-path optimizer.
 - A fairer retest needs overnight free-flow snapshots (the scrape schedule skips about midnight–6am).
 
+## Validation notes (2026-10-28, after sweeping sides, medians, give-up rule)
+Ranges are across 3 seeds:
+
+| Check | Result |
+|---|---|
+| Sweeping | ρ 0.84–0.86 |
+| Night double parking | ρ 0.33–0.36 |
+| Evening permit spillover | ρ 0.49–0.53 |
+| Saturday midday | ρ 0.29–0.34 |
+| Wednesday midday | ρ 0.10–0.13 |
+
+Wednesday midday was 0.21 with the old north/east convention for sweeping sides (`PARKSIM_SWEEP_SIDE=convention`); nothing else changed. The ticket-derived sides stay: they predict held-out sweep tickets' days 84% of the time, vs 50% for the convention. The likely reason Wednesday looks worse: ticket-derived sweeps fall on the sides where cars actually park, so Wednesday's sweeps displace more cars, and the 2010 aerial being compared against is most likely a Saturday with no sweeping.
+
 ## Known gaps
 - North K-town (3rd St to Beverly) needs parcel data. `dtla_parcels.csv` ends at 34.073.
 - Which side of the street is swept on which day is not in the data. The convention is that the north or east side takes the earlier day.
