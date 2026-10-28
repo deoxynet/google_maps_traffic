@@ -15,6 +15,8 @@ BOUNDS=34.029,-118.351,34.0785,-118.274 cargo run --release --example export_str
 python3 scripts/parking_sim/network.py             # directed driving graph (one-way, names, curb faces per direction)
 python3 scripts/parking_sim/lots.py                # public lots (city, LAZ, SP+, ACE, ABM, OSM) -> lots.json
 python3 scripts/parking_sim/optimize.py --dest 34.0560,-118.3090 --day Sat --time 13:00   # search loop + Maps links
+python3 scripts/parking_sim/evaluate_routes.py     # probe drivers follow optimized vs circling routes inside the sim
+python3 scripts/parking_sim/build_app.py           # Curb Finder app page (optimizer in the browser + trip log)
 ```
 
 ## Search-path optimizer (`optimize.py`)
@@ -37,6 +39,15 @@ python3 scripts/parking_sim/optimize.py --dest 34.0560,-118.3090 --day Sat --tim
   - Country Club Park, Wed 7pm: 3.8 min vs 18.4. Circling the nearest blocks hits permit-only streets.
   - Western & 6th, Fri 8pm: about 5% within 400 m, so the advice is a lot. That's the simulator's view; evening absolute levels are uncalibrated.
 - **Answer format:** each query reports "straight to a lot" (name, walk, price for `--stay` hours where posted) next to the best street loop, with a lot to use if the loop fails. It also shows whether walking up to 800 m is worth it.
+- **Calibration (`PARKSIM_P_SCALE`, default 0.25):** the capture rate counts every face a simulated searcher scans in one instant, so it overstates one driver's chance about 4×. `evaluate_routes.py` checked this with probe drivers following the planned loops minute by minute in a fresh simulated day:
+  - 30 destinations, 5 time slots, 6 start times.
+  - Optimized: 7.9 min to the door. Typical circling: 14.7 min. The optimized loop was faster or equal in 89% of 900 paired trips.
+  - With 0.25, predicted loop times match the probes within about 0.8 min in every slot.
+- **App (`build_app.py` → `data/parking_sim/app.html`):** the same optimizer, ported to JavaScript.
+  - The app uses hourly chances, so its plans can differ slightly from the 15-minute Python ones.
+  - Tap a destination, then choose day, arrival time, walk limit and stay.
+  - It shows the plan with the route drawn and Google Maps links.
+  - "How did it go?" saves trips (outcome, minutes searching, where you parked) to the page's `db` collection `trips`, for calibration.
 - **Known gaps:**
   - Most lots have no posted price or hours, and lot occupancy is unknown.
   - A waypoint fixes the block but not the travel direction, which matters for right-side parking.
@@ -49,9 +60,10 @@ python3 scripts/parking_sim/optimize.py --dest 34.0560,-118.3090 --day Sat --tim
     - Start from (length − 7 m setback at each intersection) / 6.1 m.
     - Multiply by (1 − the share of curb that tickets show cannot be parked on). Ticketed driveways count 4.5 m, hydrants 9.1 m, red curb 6 m, and bus zones 25 m. Tickets are clustered by position along the curb. Corners already inside the setback are not subtracted again. The share is pooled over same-type streets within 500 m.
     - Multiply by a residual usable factor.
+    - Inner faces of divided roads get zero capacity. These are parallel one-way carriageways of the same street within 25 m.
     - Subtracting tickets per face is right on average but noisy, because tickets are written where parking pressure is high. That is why the share is pooled.
   - **Rules.** Weekly 15-minute calendars:
-    - posted street sweeping, by week of the month;
+    - posted street sweeping, by week of the month. Which side is swept on which day is learned per (route, street, side) from where sweep tickets land: deriving the day from half the tickets matched the other half 84% of the time, vs 50% for the old north/east-first convention, which is now only the fallback;
     - permit-district hours, from preferential-parking tickets pooled within 150 m;
     - meter paid hours, max stay, and tow-away windows;
     - no-stopping / no-parking windows and loading-zone hours, from the hours those tickets are written.

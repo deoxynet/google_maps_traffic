@@ -14,6 +14,7 @@ Writes data/parking_sim/contention_wd<weekday>_w<week>.npz
 """
 import argparse
 import heapq
+import math
 import os
 import sys
 import time
@@ -101,8 +102,12 @@ class Sim:
             f = self.park(p, "resident_far", slot)
         return f if f >= 0 else -3
 
-    def run(self, D):
+    def run(self, D, probes=None):
+        """probes: optional test drivers following fixed routes (see evaluate_routes.py); results in self.probe_results."""
         res, com, vis = D["residents"], D["commuters"], D["visitors"]
+        probe_q = [(pr["start"], k, 0, 0.0) for k, pr in enumerate(probes or [])]
+        heapq.heapify(probe_q)
+        self.probe_results = {}
         events = []  # (minute, order, type, payload)
         nres = len(res["xy"])
         car_face = np.full(nres, -1)
@@ -153,6 +158,25 @@ class Sim:
                     f = self.park(vis["xy"][i], "visitor", slot)
                     if f >= 0:
                         heapq.heappush(departures, (int(min(vis["arrive"][i] + vis["dwell"][i], 1439)), f))
+            while probe_q and probe_q[0][0] <= minute:
+                _, k, idx, elapsed = heapq.heappop(probe_q)
+                pr = probes[k]
+                if idx >= len(pr["route"]):
+                    self.probe_results[k] = (False, elapsed + pr["fallback_s"], elapsed)
+                    continue
+                parked = None
+                for f, walk in pr["faces"][idx]:
+                    if self.vis_ok[f, slot] and self.occ[f] < self.cap_t[f, slot]:
+                        parked = (f, walk)
+                        break
+                if parked:
+                    f, walk = parked
+                    self.occ[f] += 1
+                    heapq.heappush(departures, (min(minute + pr["stay_min"], 1439), f))
+                    self.probe_results[k] = (True, elapsed + pr["tt"][idx] / 2 + 30 + walk / 1.3, elapsed)
+                    continue
+                elapsed += pr["tt"][idx] + pr["turn"][idx]
+                heapq.heappush(probe_q, (pr["start"] + int(math.ceil(elapsed / 60)), k, idx + 1, elapsed))
             self.occ_sum[:, slot] += self.occ
             self.free_min[:, slot] += self.vis_ok[:, slot] & (self.occ < self.cap_t[:, slot])
 
@@ -245,6 +269,44 @@ def _empty_res():
     return dict(xy=np.zeros((0, 2)), away=[])
 
 
+def prepare_day(S, weekday, anchor="night", anchor_train_all=False, verbose=True):
+    """Demand for one simulated day: residents, commuters, visitors (anchored to the satellite estimator)."""
+    say = print if verbose else (lambda *a, **k: None)
+    t = time.time()
+    bbox = tuple(S["bbox"])
+    weekend = weekday >= 5
+    D = dict(residents=demand.residents(bbox, weekend), commuters=demand.commuters(bbox, weekend),
+             visitors=demand.visitors(bbox, weekday))
+    say(f"demand: {D['residents']['onstreet_cars']:,} resident cars on street ({D['residents']['units']:,.0f} units),"
+        f" {len(D['commuters']['xy']):,} curb-parking commuters, {len(D['visitors']['xy']):,} curb-seeking visitor trips"
+        f" from {D['visitors']['places']:,} places  [{time.time() - t:.0f}s]")
+    # drop demand that has no modeled curb nearby (outside the street network)
+    curb_tree = cKDTree(S["xy"][S["capacity"] >= 0.5])
+    for k in ("commuters", "visitors"):
+        keep = curb_tree.query(D[k]["xy"])[0] <= 150
+        say(f"  {k}: dropped {(~keep).sum():,} of {len(keep):,} with no modeled curb within 150 m")
+        D[k] = {kk: (v[keep] if isinstance(v, np.ndarray) and len(v) == len(keep) else v) for kk, v in D[k].items()}
+    keep = curb_tree.query(D["residents"]["xy"])[0] <= 150
+    say(f"  residents: dropped {(~keep).sum():,} of {len(keep):,} with no modeled curb within 150 m")
+    D["residents"]["xy"] = D["residents"]["xy"][keep]
+    D["residents"]["away"] = [a for a, k in zip(D["residents"]["away"], keep) if k]
+    if anchor != "none":
+        tag = (f"cs{demand.ONSTREET_COMMUTE_SHARE}_cc{demand.COMMUTER_CURB}_vs{demand.VISITOR_SCALE}"
+               f"_ve{demand.VISITOR_EVENING}_ns{NIGHT_SCALE}")
+        cache = OUT_DIR / f"anchor_{anchor}_{'all' if anchor_train_all else 'excl_core'}_{tag}.npz"
+        if cache.exists():
+            A = dict(np.load(cache))
+        else:
+            ref = D if weekday == 2 else dict(residents=demand.residents(bbox, False),
+                                               commuters=demand.commuters(bbox, False), visitors=demand.visitors(bbox, 2))
+            A = anchor_multipliers(S, ref, exclude_core=not anchor_train_all, mode=anchor)
+            np.savez(cache, **A)
+        D = apply_anchor(D, A, weekend)
+        say(f"  anchored: resident cars on street {len(D['residents']['xy']):,}; multiplier median {np.median(A['m']):.2f},"
+            f" p10-p90 {np.percentile(A['m'], 10):.2f}-{np.percentile(A['m'], 90):.2f}")
+    return D
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--weekday", type=int, default=2)
@@ -256,37 +318,7 @@ def main():
     args = ap.parse_args()
     t = time.time()
     S = dict(np.load(OUT_DIR / "supply.npz"))
-    bbox = tuple(S["bbox"])
-    weekend = args.weekday >= 5
-    D = dict(residents=demand.residents(bbox, weekend), commuters=demand.commuters(bbox, weekend),
-             visitors=demand.visitors(bbox, args.weekday))
-    print(f"demand: {D['residents']['onstreet_cars']:,} resident cars on street ({D['residents']['units']:,.0f} units),"
-          f" {len(D['commuters']['xy']):,} curb-parking commuters, {len(D['visitors']['xy']):,} curb-seeking visitor trips"
-          f" from {D['visitors']['places']:,} places  [{time.time() - t:.0f}s]")
-    # drop demand that has no modeled curb nearby (outside the traffic graph)
-    curb_tree = cKDTree(S["xy"][S["capacity"] >= 0.5])
-    for k in ("commuters", "visitors"):
-        keep = curb_tree.query(D[k]["xy"])[0] <= 150
-        print(f"  {k}: dropped {(~keep).sum():,} of {len(keep):,} with no modeled curb within 150 m")
-        D[k] = {kk: (v[keep] if isinstance(v, np.ndarray) and len(v) == len(keep) else v) for kk, v in D[k].items()}
-    keep = curb_tree.query(D["residents"]["xy"])[0] <= 150
-    print(f"  residents: dropped {(~keep).sum():,} of {len(keep):,} with no modeled curb within 150 m")
-    D["residents"]["xy"] = D["residents"]["xy"][keep]
-    D["residents"]["away"] = [a for a, k in zip(D["residents"]["away"], keep) if k]
-    if args.anchor != "none":
-        tag = (f"cs{demand.ONSTREET_COMMUTE_SHARE}_cc{demand.COMMUTER_CURB}_vs{demand.VISITOR_SCALE}"
-               f"_ve{demand.VISITOR_EVENING}_ns{NIGHT_SCALE}")
-        cache = OUT_DIR / f"anchor_{args.anchor}_{'all' if args.anchor_train_all else 'excl_core'}_{tag}.npz"
-        if cache.exists():
-            A = dict(np.load(cache))
-        else:
-            ref = D if args.weekday == 2 else dict(residents=demand.residents(bbox, False),
-                                                   commuters=demand.commuters(bbox, False), visitors=demand.visitors(bbox, 2))
-            A = anchor_multipliers(S, ref, exclude_core=not args.anchor_train_all, mode=args.anchor)
-            np.savez(cache, **A)
-        D = apply_anchor(D, A, weekend)
-        print(f"  anchored: resident cars on street {len(D['residents']['xy']):,}; multiplier median {np.median(A['m']):.2f},"
-              f" p10-p90 {np.percentile(A['m'], 10):.2f}-{np.percentile(A['m'], 90):.2f}")
+    D = prepare_day(S, args.weekday, args.anchor, args.anchor_train_all)
     sim = Sim(S, args.weekday, args.week)
     sim.run(D)
     occ = sim.occ_sum / 15

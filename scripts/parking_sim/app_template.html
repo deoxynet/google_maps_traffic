@@ -1,0 +1,463 @@
+<title>Curb Finder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one-screen tool. Controls strip, map left, plan + trip log right; stacks on phones (map first). */
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --ink: #111823; --ink-2: #4b5667; --muted: #8a94a3; --rule: #dde3ea;
+  --accent: #2a78d6; --route: #e8590c; --route-ink: #ffffff; --good: #0ca30c;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r0: #cde2fb; --r1: #9ec5f4; --r2: #6da7ec; --r3: #3987e5; --r4: #256abf; --r5: #184f95; --r6: #0d366b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10141a; --panel: #161b22; --ink: #e8ecf1; --ink-2: #aeb7c3; --muted: #6e7887; --rule: #27303b;
+    --accent: #3987e5; --route: #ff8a3d; --route-ink: #10141a; --good: #3fbf3f;
+    --r0: #1a3a63; --r1: #1f4f8c; --r2: #2a6bbd; --r3: #3987e5; --r4: #6da7ec; --r5: #9ec5f4; --r6: #dbeafd;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10141a; --panel: #161b22; --ink: #e8ecf1; --ink-2: #aeb7c3; --muted: #6e7887; --rule: #27303b;
+  --accent: #3987e5; --route: #ff8a3d; --route-ink: #10141a; --good: #3fbf3f;
+  --r0: #1a3a63; --r1: #1f4f8c; --r2: #2a6bbd; --r3: #3987e5; --r4: #6da7ec; --r5: #9ec5f4; --r6: #dbeafd;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body { color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; padding-inline: 16px; padding-block: 16px 28px; }
+.wrap { max-width: 1280px; margin-inline: auto; display: grid; gap: 12px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 4vw, 36px); letter-spacing: 0.02em; text-transform: uppercase; margin: 0; }
+.sub { color: var(--ink-2); margin: 0; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; }
+.group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.label { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
+.seg button, .btn { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid var(--rule); background: transparent; color: var(--ink-2); border-radius: 6px; padding: 5px 9px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn.primary { background: var(--route); color: var(--route-ink); border-color: var(--route); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+button:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select, input[type="number"], input[type="text"] { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 6px; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; align-items: start; }
+@media (max-width: 900px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.mapbox { position: relative; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+canvas#map { display: block; width: 100%; height: min(70vh, 660px); min-height: 340px; touch-action: none; cursor: crosshair; }
+.hint { position: absolute; left: 10px; top: 10px; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 6px 10px; font-size: 13px; color: var(--ink-2); max-width: 70%; }
+.zoom { position: absolute; top: 10px; right: 10px; display: grid; gap: 4px; }
+.zoom .btn { background: var(--panel); width: 34px; height: 34px; padding: 0; font-size: 18px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--rule); font-size: 13px; color: var(--ink-2); }
+.ramp { width: 130px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--r6), var(--r5), var(--r4), var(--r3), var(--r2), var(--r1), var(--r0)); display: inline-block; vertical-align: middle; }
+.swatch { display: inline-block; width: 26px; height: 0; border-top: 4px solid var(--route); vertical-align: middle; border-radius: 2px; }
+aside { display: grid; gap: 12px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.eyebrow { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.verdict { font-family: var(--font-display); font-weight: 700; font-size: 26px; line-height: 1.1; text-transform: uppercase; letter-spacing: 0.02em; margin: 0; text-wrap: balance; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { display: grid; gap: 2px; }
+.stat b { font-family: var(--font-display); font-weight: 700; font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1; }
+.stat span { font-size: 12px; color: var(--ink-2); }
+.small { font-size: 13px; color: var(--ink-2); margin: 0; }
+.route { font-size: 13px; color: var(--ink-2); margin: 0; overflow-wrap: anywhere; }
+.links { display: flex; flex-wrap: wrap; gap: 8px; }
+.links a { text-decoration: none; }
+.sign { display: inline-block; font-family: var(--font-display); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; border: 2px solid currentColor; border-radius: 4px; padding: 0 6px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.trips { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); margin: 0; padding: 0; list-style: none; }
+.trips li { border-top: 1px solid var(--rule); padding-top: 6px; }
+.num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.status { font-size: 13px; color: var(--ink-2); min-height: 1.2em; margin: 0; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Curb Finder</h1>
+    <p class="sub">K-town &amp; Mid-Wilshire · tap where you're going, get the block loop most likely to give you a legal space</p>
+  </header>
+
+  <div class="controls" role="group" aria-label="Trip settings">
+    <div class="group seg" id="days" aria-label="Day"></div>
+    <div class="group"><label class="label" for="time">Arrive</label><select id="time"></select></div>
+    <div class="group seg" id="walk" aria-label="Walking limit"><span class="label">Walk up to</span></div>
+    <div class="group"><label class="label" for="stay">Stay</label><select id="stay"><option value="1">1 h</option><option value="2" selected>2 h</option><option value="3">3 h</option><option value="4">4 h</option></select></div>
+  </div>
+
+  <div class="main">
+    <div class="mapbox">
+      <canvas id="map" tabindex="0" aria-label="Map: tap to set your destination"></canvas>
+      <div class="hint" id="hint">Tap the map where you're going.</div>
+      <div class="zoom"><button class="btn" id="zin" aria-label="Zoom in">+</button><button class="btn" id="zout" aria-label="Zoom out">−</button><button class="btn" id="zreset" aria-label="Reset view">⤢</button></div>
+      <div class="legend">
+        <span><span class="ramp" aria-hidden="true"></span> chance a passing driver gets a space (dark = hard)</span>
+        <span><span class="swatch" aria-hidden="true"></span> your search loop</span>
+        <span><b>P</b> public lot</span>
+      </div>
+    </div>
+
+    <aside>
+      <section class="card" aria-labelledby="planTitle">
+        <h2 class="eyebrow" id="planTitle">Your plan</h2>
+        <p class="verdict" id="verdict">Pick a destination</p>
+        <div class="stats" id="stats" hidden>
+          <div class="stat"><b id="sMin">–</b><span>min to the door (expected)</span></div>
+          <div class="stat"><b id="sChance">–</b><span>chance the loop finds a space</span></div>
+          <div class="stat"><b id="sSave">–</b><span>min saved vs circling</span></div>
+        </div>
+        <p class="small" id="lotLine"></p>
+        <p class="route" id="routeLine"></p>
+        <div class="links" id="links"></div>
+        <p class="small" id="altLine"></p>
+      </section>
+
+      <section class="card" aria-labelledby="logTitle">
+        <h2 class="eyebrow" id="logTitle">How did it go?</h2>
+        <p class="small">Logging real trips is how these predictions get calibrated.</p>
+        <div class="group seg" id="outcome" aria-label="Outcome"></div>
+        <div class="row"><label for="mins" class="small">Minutes searching</label><input type="number" id="mins" min="0" max="120" step="1" value="5" style="width:5em"></div>
+        <div class="row"><button class="btn" id="markBtn" type="button">Mark where I parked</button><span class="small" id="markLine">not marked</span></div>
+        <div class="row"><input type="text" id="note" placeholder="Note (optional)" maxlength="140" style="flex:1;min-width:0"></div>
+        <div class="row"><button class="btn primary" id="saveBtn" type="button" disabled>Save trip</button></div>
+        <p class="status" id="saveStatus"></p>
+        <h3 class="eyebrow">Recent trips</h3>
+        <ul class="trips" id="trips"><li>Saved trips appear here.</li></ul>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(() => {
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const PARK_S = 30, WALK_MPS = 1.3, DETOUR = 1.25, REVISIT = 0.35, LOT_ENTRY_S = 120, UNVERIFIED_S = 300, FAR_S = 900;
+  const dec = (s, T) => { const u = Uint8Array.from(atob(s), c => c.charCodeAt(0)); return new T(u.buffer); };
+  const NODES = dec(D.nodes, Float32Array), nN = NODES.length / 2;
+  const SRC = dec(D.edges.src, Uint16Array), DST = dec(D.edges.dst, Uint16Array), BLK = dec(D.edges.block, Uint16Array);
+  const FWD = dec(D.edges.fwd, Uint8Array), FR = dec(D.edges.face_r, Int16Array), FL = dec(D.edges.face_l, Int16Array);
+  const TT = dec(D.edges.tt, Uint8Array), NAME = D.edges.name, nE = SRC.length;
+  const FXY = dec(D.faces.xy, Float32Array), FP = dec(D.faces.p, Uint8Array);
+  const BL = D.blocks.map(a => { const p = []; for (let i = 0; i < a.length; i += 2) p.push([a[i], a[i + 1]]); return p; });
+  const LOTS = D.lots;
+  const [LAT0, LON0] = D.origin, MLAT = D.m_lat, MLON = D.m_lon;
+  const toLL = (x, y) => [LAT0 + y / MLAT, LON0 + x / MLON];
+  // per edge geometry
+  const LINE = [], HEAD = new Float64Array(nE), MID = new Float64Array(nE * 2);
+  const OUT = Array.from({ length: nN }, () => []), INTO = Array.from({ length: nN }, () => []);
+  for (let e = 0; e < nE; e++) {
+    const l = FWD[e] ? BL[BLK[e]] : BL[BLK[e]].slice().reverse();
+    LINE.push(l);
+    const a = l[0], b = l[l.length - 1];
+    HEAD[e] = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    const m = l[Math.floor(l.length / 2)]; MID[2 * e] = m[0]; MID[2 * e + 1] = m[1];
+    OUT[SRC[e]].push(e); INTO[DST[e]].push(e);
+  }
+  // faces per block (for drawing one line per block)
+  const BFACES = BL.map(() => new Set());
+  for (let e = 0; e < nE; e++) { if (FR[e] >= 0) BFACES[BLK[e]].add(FR[e]); if (FL[e] >= 0) BFACES[BLK[e]].add(FL[e]); }
+  const nearestNode = (x, y) => { let best = 0, bd = Infinity; for (let i = 0; i < nN; i++) { const d = (NODES[2 * i] - x) ** 2 + (NODES[2 * i + 1] - y) ** 2; if (d < bd) { bd = d; best = i; } } return best; };
+  const LOTNODE = LOTS.map(l => nearestNode(l.x, l.y));
+
+  // ---- optimizer (port of scripts/parking_sim/optimize.py) ----
+  function edgeTerms(dest, day, hour, walkMax) {
+    const p = new Float64Array(nE), walk = new Float64Array(nE), tt = new Float64Array(nE), we = day >= 5 ? 1 : 0;
+    for (let e = 0; e < nE; e++) {
+      tt[e] = TT[e * 48 + we * 24 + hour];
+      let pe = 0, w = 0;
+      for (const f of [FR[e], FL[e]]) {
+        if (f < 0) continue;
+        const d = Math.hypot(FXY[2 * f] - dest[0], FXY[2 * f + 1] - dest[1]) * DETOUR;
+        if (d > walkMax) continue;
+        const pf = FP[f * 168 + day * 24 + hour] / 100;
+        if (pf <= 0) continue;
+        w = (w * pe + d * pf * (1 - pe)) / (pe + pf * (1 - pe));
+        pe = 1 - (1 - pe) * (1 - pf);
+      }
+      p[e] = pe; walk[e] = w;
+    }
+    return { p, walk, tt };
+  }
+  function heapPush(h, item) { h.push(item); let i = h.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (h[j][0] <= h[i][0]) break; [h[i], h[j]] = [h[j], h[i]]; i = j; } }
+  function heapPop(h) { const top = h[0], last = h.pop(); if (h.length) { h[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < h.length && h[l][0] < h[m][0]) m = l; if (r < h.length && h[r][0] < h[m][0]) m = r; if (m === i) break; [h[i], h[m]] = [h[m], h[i]]; i = m; } } return top; }
+  function lotCosts(dest, day, hour, walkMax, tt) {
+    const G = new Float64Array(nN).fill(Infinity), which = new Int32Array(nN).fill(-1);
+    LOTS.forEach((lot, i) => {
+      const walk = Math.hypot(lot.x - dest[0], lot.y - dest[1]) * DETOUR;
+      if (walk > Math.max(walkMax, 800) || (lot.open && !lot.open[day][hour])) return;
+      const extra = LOT_ENTRY_S + walk / WALK_MPS + (lot.verified ? 0 : UNVERIFIED_S);
+      const dist = new Float64Array(nN).fill(Infinity); dist[LOTNODE[i]] = 0;
+      const pq = [[0, LOTNODE[i]]];
+      while (pq.length) {
+        const [d, v] = heapPop(pq);
+        if (d > dist[v]) continue;
+        for (const e of INTO[v]) { const u = SRC[e], nd = d + tt[e]; if (nd < dist[u]) { dist[u] = nd; heapPush(pq, [nd, u]); } }
+      }
+      for (let v = 0; v < nN; v++) { const c = dist[v] + extra; if (c < G[v]) { G[v] = c; which[v] = i; } }
+    });
+    for (let v = 0; v < nN; v++) if (G[v] > FAR_S) { G[v] = FAR_S; which[v] = -1; }
+    return { G, which };
+  }
+  const turnS = (e1, e2) => { const d = Math.abs(((HEAD[e2] - HEAD[e1] + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI); return d < 0.698 ? 3 : (d < 2.443 ? 12 : 25); };
+  function optimize(start, T, G, maxDrive = 600, beam = 300) {
+    const { p, walk, tt } = T;
+    let frontier = [{ J: G[start], E: 0, S: 1, t: 0, node: start, last: -1, route: [] }];
+    let best = { J: G[start], route: [] };
+    while (frontier.length) {
+      const nxt = new Map();
+      for (const s of frontier) {
+        const seen = new Set(s.route.map(e => BLK[e]));
+        for (const e of OUT[s.node]) {
+          if (s.last >= 0 && BLK[e] === BLK[s.last] && OUT[s.node].length > 1) continue;
+          const t0 = s.t + (s.last >= 0 ? turnS(s.last, e) : 0);
+          if (t0 + tt[e] > maxDrive) continue;
+          const pe = p[e] * (seen.has(BLK[e]) ? REVISIT : 1);
+          const E2 = s.E + s.S * pe * (t0 + tt[e] / 2 + PARK_S + walk[e] / WALK_MPS);
+          const S2 = s.S * (1 - pe), t2 = t0 + tt[e];
+          const J2 = E2 + S2 * (t2 + G[DST[e]]);
+          const key = DST[e] * 100000 + e;
+          const cur = nxt.get(key);
+          if (!cur || J2 < cur.J) nxt.set(key, { J: J2, E: E2, S: S2, t: t2, node: DST[e], last: e, route: s.route.concat(e) });
+          if (J2 < best.J) best = { J: J2, route: s.route.concat(e) };
+        }
+      }
+      frontier = [...nxt.values()].sort((a, b) => a.J - b.J).slice(0, beam);
+    }
+    return best.route;
+  }
+  function baseline(start, dest, T, maxDrive = 600) {
+    const tt = T.tt, route = [];
+    let node = start, last = -1, t = 0, recent = [];
+    for (;;) {
+      const c = OUT[node].filter(e => !(last >= 0 && BLK[e] === BLK[last] && OUT[node].length > 1));
+      if (!c.length) break;
+      c.sort((a, b) => (recent.includes(BLK[a]) - recent.includes(BLK[b])) || (Math.hypot(MID[2 * a] - dest[0], MID[2 * a + 1] - dest[1]) - Math.hypot(MID[2 * b] - dest[0], MID[2 * b + 1] - dest[1])));
+      const e = c[0], t0 = t + (last >= 0 ? turnS(last, e) : 0);
+      if (t0 + tt[e] > maxDrive) break;
+      route.push(e); recent = recent.concat(BLK[e]).slice(-6); node = DST[e]; last = e; t = t0 + tt[e];
+    }
+    return route;
+  }
+  function evaluate(route, T, G, start) {
+    const { p, walk, tt } = T; let E = 0, S = 1, t = 0; const seen = new Set();
+    route.forEach((e, i) => {
+      if (i) t += turnS(route[i - 1], e);
+      const pe = p[e] * (seen.has(BLK[e]) ? REVISIT : 1);
+      E += S * pe * (t + tt[e] / 2 + PARK_S + walk[e] / WALK_MPS); S *= 1 - pe; t += tt[e]; seen.add(BLK[e]);
+    });
+    const end = route.length ? DST[route[route.length - 1]] : start;
+    return { J: E + S * (t + G[end]), P: 1 - S, T: t, end };
+  }
+  function waypoints(route, T, maxPts) {
+    const idx = []; let S = 1;
+    for (let i = 0; i < route.length; i++) {
+      const e = route[i];
+      if (i === 0 || turnS(route[i - 1], e) > 3 || NAME[e] !== NAME[route[i - 1]]) idx.push(i);
+      S *= 1 - T.p[e];
+      if (1 - S >= 0.95) break;
+    }
+    return idx.slice(0, maxPts + 1).map(i => {
+      const l = LINE[route[i]]; let L = 0; const seg = [];
+      for (let k = 1; k < l.length; k++) { const s = Math.hypot(l[k][0] - l[k - 1][0], l[k][1] - l[k - 1][1]); seg.push(s); L += s; }
+      let target = 0.7 * L, k = 0;
+      while (k < seg.length - 1 && target > seg[k]) { target -= seg[k]; k++; }
+      const f = seg[k] ? target / seg[k] : 0;
+      return toLL(l[k][0] + (l[k + 1][0] - l[k][0]) * f, l[k][1] + (l[k + 1][1] - l[k][1]) * f);
+    });
+  }
+  const fmt = q => q[0].toFixed(6) + ',' + q[1].toFixed(6);
+  function mapsLink(pts) {
+    if (!pts.length) return null;
+    const dest = fmt(pts[pts.length - 1]), wps = pts.slice(0, -1).map(fmt).join('%7C');
+    return `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=driving` + (wps ? `&waypoints=${wps}` : '');
+  }
+  function lotText(i, dest, stay) {
+    const lot = LOTS[i], walk = Math.round(Math.hypot(lot.x - dest[0], lot.y - dest[1]) * DETOUR);
+    let price = 'price not posted';
+    if (lot.rate !== null && lot.rate !== undefined) { let v = lot.rate * stay; if (lot.max) v = Math.min(v, lot.max); price = v === 0 ? 'free' : `$${v.toFixed(2)} for ${stay} h`; }
+    return `${lot.name} (${lot.op}), ${walk} m walk, ${price}${lot.verified ? '' : ' — unverified public garage'}`;
+  }
+  function plan(dest, day, hour, walkMax) {
+    const start = nearestNode(dest[0], dest[1]);
+    const T = edgeTerms(dest, day, hour, walkMax);
+    const { G, which } = lotCosts(dest, day, hour, walkMax, T.tt);
+    const route = optimize(start, T, G);
+    const base = baseline(start, dest, T);
+    return { dest, day, hour, walkMax, start, T, G, which, route, opt: evaluate(route, T, G, start), base: evaluate(base, T, G, start) };
+  }
+
+  // ---- state & UI ----
+  const now = new Date();
+  const state = { day: (now.getDay() + 6) % 7, minute: Math.min(1425, Math.round((now.getHours() * 60 + now.getMinutes()) / 15) * 15), walk: 400, stay: 2,
+                  dest: null, plan: null, outcome: null, marking: false, parked: null, scale: 1, tx: 0, ty: 0 };
+  const daysEl = document.getElementById('days');
+  DAYS.forEach((n, d) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = n; b.id = 'day-' + n; b.setAttribute('aria-pressed', d === state.day); b.onclick = () => { state.day = d; [...daysEl.children].forEach((x, i) => x.setAttribute('aria-pressed', i === d)); replan(); }; daysEl.appendChild(b); });
+  const timeEl = document.getElementById('time');
+  for (let m = 0; m < 1440; m += 15) { const o = document.createElement('option'); o.value = m; const h = Math.floor(m / 60); o.textContent = `${(h % 12) || 12}:${String(m % 60).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; timeEl.appendChild(o); }
+  timeEl.value = state.minute; timeEl.onchange = () => { state.minute = +timeEl.value; replan(); };
+  const walkEl = document.getElementById('walk');
+  [400, 800].forEach(w => { const b = document.createElement('button'); b.type = 'button'; b.textContent = w + ' m'; b.id = 'walk-' + w; b.setAttribute('aria-pressed', w === state.walk); b.onclick = () => setWalk(w); walkEl.appendChild(b); });
+  function setWalk(w) { state.walk = w; walkEl.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.id === 'walk-' + w)); replan(); }
+  const stayEl = document.getElementById('stay'); stayEl.onchange = () => { state.stay = +stayEl.value; render(); };
+
+  function replan() {
+    if (!state.dest) { draw(); return; }
+    const hour = Math.floor(state.minute / 60);
+    state.plan = plan(state.dest, state.day, hour, state.walk);
+    state.alt = state.walk < 800 ? plan(state.dest, state.day, hour, 800) : null;
+    render();
+  }
+  function render() {
+    const P = state.plan, verdict = document.getElementById('verdict'), stats = document.getElementById('stats');
+    const links = document.getElementById('links'), lotLine = document.getElementById('lotLine'), routeLine = document.getElementById('routeLine'), alt = document.getElementById('altLine');
+    links.textContent = ''; lotLine.textContent = ''; routeLine.textContent = ''; alt.textContent = '';
+    if (!P) { verdict.textContent = 'Pick a destination'; stats.hidden = true; draw(); return; }
+    document.getElementById('hint').textContent = state.marking ? 'Tap the block where you parked.' : 'Tap again to change the destination.';
+    const stay = state.stay, startLot = P.which[P.start];
+    stats.hidden = false;
+    if (!P.route.length) {
+      verdict.textContent = startLot >= 0 ? 'Skip the street: go to the lot' : 'No good street option nearby';
+      document.getElementById('sMin').textContent = (P.G[P.start] / 60).toFixed(1);
+      document.getElementById('sChance').textContent = '–';
+      document.getElementById('sSave').textContent = Math.max(0, (P.base.J - P.G[P.start]) / 60).toFixed(1);
+      if (startLot >= 0) {
+        lotLine.textContent = lotText(startLot, P.dest, stay);
+        const ll = toLL(LOTS[startLot].x, LOTS[startLot].y);
+        addLink(links, `https://www.google.com/maps/dir/?api=1&destination=${fmt(ll)}&travelmode=driving`, 'Drive to the lot', true);
+      }
+    } else {
+      const o = P.opt;
+      verdict.textContent = o.P >= 0.8 ? 'Drive this loop: you should find a spot' : (o.P >= 0.35 ? 'Try this loop, lot as backup' : 'Quick look, then the lot');
+      document.getElementById('sMin').textContent = (o.J / 60).toFixed(1);
+      document.getElementById('sChance').textContent = Math.round(o.P * 100) + '%';
+      document.getElementById('sSave').textContent = Math.max(0, (P.base.J - o.J) / 60).toFixed(1);
+      const endLot = P.which[o.end];
+      lotLine.textContent = endLot >= 0 ? 'If it fails: ' + lotText(endLot, P.dest, stay) : 'If it fails: keep looking farther out (no public lot nearby).';
+      const names = []; P.route.forEach(e => { const n = NAME[e] || 'unnamed street'; if (names[names.length - 1] !== n) names.push(n); });
+      routeLine.textContent = 'Route: ' + names.join(' → ');
+      const desk = mapsLink(waypoints(P.route, P.T, 9)), mob = mapsLink(waypoints(P.route, P.T, 3));
+      if (desk) addLink(links, desk, 'Open in Google Maps', true);
+      if (mob && mob !== desk) addLink(links, mob, 'Phone route (3 stops)', false);
+    }
+    if (state.alt) {
+      const best = a => a.route.length ? a.opt.J : a.G[a.start];
+      const gain = best(P) - best(state.alt);
+      if (gain > 30) { alt.textContent = `Walking up to 800 m would save about ${(gain / 60).toFixed(1)} min. `; const b = document.createElement('button'); b.className = 'btn'; b.type = 'button'; b.textContent = 'Use 800 m'; b.onclick = () => setWalk(800); alt.appendChild(b); }
+    }
+    document.getElementById('saveBtn').disabled = !(state.outcome && db);
+    draw();
+  }
+  function addLink(parent, href, text, primary) { const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.className = 'btn' + (primary ? ' primary' : ''); a.textContent = text; parent.appendChild(a); }
+
+  // ---- map ----
+  const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
+  let W = 0, H = 0, base = 1, ox = 0, oy = 0, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  BL.forEach(l => l.forEach(([x, y]) => { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }));
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  let ramp = [], cRoute = '', cInk = '', cMuted = '', cPanel = '';
+  const readTokens = () => { ramp = ['--r6', '--r5', '--r4', '--r3', '--r2', '--r1', '--r0'].map(css); cRoute = css('--route'); cInk = css('--ink'); cMuted = css('--muted'); cPanel = css('--panel'); };
+  const sx = x => (ox + (x - minX) * base) * state.scale + state.tx, sy = y => (oy + (maxY - y) * base) * state.scale + state.ty;
+  const ux = px => ((px - state.tx) / state.scale - ox) / base + minX, uy = py => maxY - ((py - state.ty) / state.scale - oy) / base;
+  function resize() {
+    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    W = r.width; H = r.height; canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    base = Math.min((W - 24) / (maxX - minX), (H - 24) / (maxY - minY)); ox = (W - (maxX - minX) * base) / 2; oy = (H - (maxY - minY) * base) / 2;
+    draw();
+  }
+  function poly(l) { ctx.moveTo(sx(l[0][0]), sy(l[0][1])); for (let i = 1; i < l.length; i++) ctx.lineTo(sx(l[i][0]), sy(l[i][1])); }
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    const hour = Math.floor(state.minute / 60), d = state.day, lw = Math.max(1.2, Math.min(4, 1.3 * Math.sqrt(state.scale)));
+    ctx.lineCap = 'round'; ctx.lineWidth = lw;
+    for (let bin = 6; bin >= 0; bin--) {
+      ctx.strokeStyle = ramp[bin]; ctx.beginPath();
+      BL.forEach((l, b) => {
+        let pmax = 0, any = false;
+        for (const f of BFACES[b]) { any = true; pmax = Math.max(pmax, FP[f * 168 + d * 24 + hour]); }
+        if (!any) return;
+        if (Math.min(6, Math.floor(pmax / (100 / 7))) === bin) poly(l);
+      });
+      ctx.stroke();
+    }
+    const P = state.plan;
+    if (P && P.route.length) {
+      ctx.strokeStyle = cRoute; ctx.lineWidth = lw + 3.5; ctx.beginPath(); P.route.forEach(e => poly(LINE[e])); ctx.stroke();
+      ctx.fillStyle = cRoute;
+      P.route.forEach(e => { const l = LINE[e], m = l[Math.floor(l.length / 2)], x = sx(m[0]), y = sy(m[1]), a = -HEAD[e]; ctx.save(); ctx.translate(x, y); ctx.rotate(a); ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, -4.5); ctx.lineTo(-4, 4.5); ctx.closePath(); ctx.fill(); ctx.restore(); });
+    }
+    LOTS.forEach((lot, i) => {
+      const x = sx(lot.x), y = sy(lot.y), used = P && (P.which[P.start] === i || (P.route.length && P.which[P.opt.end] === i));
+      ctx.fillStyle = used ? cInk : cPanel; ctx.strokeStyle = cInk; ctx.lineWidth = 1.2;
+      ctx.fillRect(x - 6, y - 6, 12, 12); ctx.strokeRect(x - 6, y - 6, 12, 12);
+      ctx.fillStyle = used ? cPanel : cInk; ctx.font = '700 10px ' + css('--font-display'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('P', x, y + 0.5);
+    });
+    const pin = (q, color) => { if (!q) return; const x = sx(q[0]), y = sy(q[1]); ctx.fillStyle = color; ctx.strokeStyle = cPanel; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y - 10, 7, 0, 2 * Math.PI); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x - 4, y - 6); ctx.lineTo(x, y); ctx.lineTo(x + 4, y - 6); ctx.fill(); };
+    pin(state.dest, cInk); pin(state.parked, cRoute);
+  }
+  const pointers = new Map(); let lastPinch = 0, moved = false;
+  canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, [e.offsetX, e.offsetY]); moved = false; });
+  canvas.addEventListener('pointermove', e => {
+    const prev = pointers.get(e.pointerId); if (!prev) return;
+    if (pointers.size === 1) { const dx = e.offsetX - prev[0], dy = e.offsetY - prev[1]; if (Math.abs(dx) + Math.abs(dy) > 1) moved = true; state.tx += dx; state.ty += dy; }
+    pointers.set(e.pointerId, [e.offsetX, e.offsetY]);
+    if (pointers.size === 2) { const [a, b] = [...pointers.values()], dist = Math.hypot(a[0] - b[0], a[1] - b[1]); if (lastPinch) zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, dist / lastPinch); lastPinch = dist; moved = true; }
+    draw();
+  });
+  canvas.addEventListener('pointerup', e => {
+    pointers.delete(e.pointerId); if (pointers.size < 2) lastPinch = 0;
+    if (moved) return;
+    const q = [ux(e.offsetX), uy(e.offsetY)];
+    if (state.marking) { state.parked = q; state.marking = false; document.getElementById('markLine').textContent = 'marked on the map'; render(); return; }
+    state.dest = q; state.parked = null; document.getElementById('markLine').textContent = 'not marked'; replan();
+  });
+  canvas.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); lastPinch = 0; });
+  canvas.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.offsetX, e.offsetY, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+  function zoomAt(px, py, k) { const s = Math.max(1, Math.min(16, state.scale * k)); k = s / state.scale; state.tx = px - (px - state.tx) * k; state.ty = py - (py - state.ty) * k; state.scale = s; if (s === 1) { state.tx = 0; state.ty = 0; } draw(); }
+  document.getElementById('zin').onclick = () => zoomAt(W / 2, H / 2, 1.6);
+  document.getElementById('zout').onclick = () => zoomAt(W / 2, H / 2, 1 / 1.6);
+  document.getElementById('zreset').onclick = () => { state.scale = 1; state.tx = 0; state.ty = 0; draw(); };
+  canvas.addEventListener('keydown', e => { const m = { ArrowLeft: [40, 0], ArrowRight: [-40, 0], ArrowUp: [0, 40], ArrowDown: [0, -40] }[e.key]; if (m) { state.tx += m[0]; state.ty += m[1]; draw(); e.preventDefault(); } });
+
+  // ---- trip log (db) ----
+  let db = null, me = null;
+  const outEl = document.getElementById('outcome');
+  [['street', 'Found street parking'], ['lot', 'Used a lot'], ['gave_up', 'Gave up']].forEach(([k, label]) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.id = 'out-' + k; b.setAttribute('aria-pressed', 'false'); b.onclick = () => { state.outcome = k; outEl.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.id === 'out-' + k)); render(); }; outEl.appendChild(b); });
+  document.getElementById('markBtn').onclick = () => { state.marking = true; document.getElementById('hint').textContent = 'Tap the block where you parked.'; };
+  const statusEl = document.getElementById('saveStatus');
+  document.getElementById('saveBtn').onclick = async () => {
+    if (!db || !state.outcome) return;
+    const P = state.plan, btn = document.getElementById('saveBtn'); btn.disabled = true; statusEl.textContent = 'Saving…';
+    const doc = { who: me, at: Date.now(), day: DAYS[state.day], minute: state.minute, walk: state.walk, stay: state.stay,
+      dest: state.dest ? toLL(...state.dest) : null,
+      plan: P ? { kind: P.route.length ? 'street' : 'lot', expected_min: +(((P.route.length ? P.opt.J : P.G[P.start]) / 60).toFixed(2)), chance: P.route.length ? +P.opt.P.toFixed(3) : null,
+                  circling_min: +(P.base.J / 60).toFixed(2), blocks: P.route.map(e => BLK[e]), p_scale: D.p_scale } : null,
+      outcome: { result: state.outcome, minutes: Math.max(0, +document.getElementById('mins').value || 0), parked: state.parked ? toLL(...state.parked) : null },
+      note: document.getElementById('note').value.slice(0, 140) };
+    try { await db.collection('trips').add(doc); statusEl.textContent = 'Saved. Thanks — this trip will help calibrate the model.'; document.getElementById('note').value = ''; }
+    catch (err) { statusEl.textContent = 'Could not save (' + (err && err.code || 'error') + '). Check that you are signed in and can edit this page.'; }
+    btn.disabled = false;
+  };
+  (async () => {
+    try { db = await window.claude?.use?.('db'); } catch (e) { db = null; }
+    try { const user = await window.claude?.use?.('user'); me = user ? await user.id() : null; } catch (e) { me = null; }
+    if (!db) { statusEl.textContent = 'Saving trips needs a signed-in view of this page.'; return; }
+    render();
+    db.collection('trips').orderBy('at', 'desc').limit(20).onSnapshot(snap => {
+      const ul = document.getElementById('trips'); ul.textContent = '';
+      const rows = snap.docs.map(d => d.data()).filter(r => !me || !r.who || r.who === me).slice(0, 8);
+      if (!rows.length) { const li = document.createElement('li'); li.textContent = 'No trips saved yet.'; ul.appendChild(li); return; }
+      rows.forEach(r => { const li = document.createElement('li'); const t = new Date(r.at); const res = { street: 'street', lot: 'lot', gave_up: 'gave up' }[r.outcome?.result] || '?';
+        li.textContent = `${t.toLocaleDateString()} ${r.day} ${Math.floor(r.minute / 60)}:${String(r.minute % 60).padStart(2, '0')} — ${res}, ${r.outcome?.minutes ?? '?'} min` + (r.plan ? ` (predicted ${r.plan.expected_min} min)` : ''); ul.appendChild(li); });
+    }, () => {});
+  })();
+
+  readTokens();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readTokens(); draw(); });
+  new MutationObserver(() => { readTokens(); draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  new ResizeObserver(resize).observe(canvas);
+  render();
+})();
+</script>

@@ -36,6 +36,9 @@ from supply import OUT_DIR  # noqa: E402
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 PARK_S, WALK_MPS, DETOUR = 30.0, 1.3, 1.25
 REVISIT = 0.35
+# CAL: per-pass chance multiplier. The capture rate counts every face a simulated searcher scans at once, so it
+# overstates one driver's chance about 4x; 0.25 made predicted loop times match in-sim probe drivers within ~0.8 min
+P_SCALE = float(__import__("os").environ.get("PARKSIM_P_SCALE", 0.25))
 LOT_ENTRY_S = 120.0
 UNVERIFIED_S = 300.0      # an OSM garage with no access tag may be tenant-only: about a coin flip of driving on
 FAR_FALLBACK_S = 900.0    # no public lot in range: keep searching farther out
@@ -80,7 +83,7 @@ class Planner:
             ok = f >= 0
             d = np.full(len(f), np.inf)
             d[ok] = np.hypot(*(self.face_xy[f[ok]] - dest).T) * DETOUR
-            pf = np.where(ok & (d <= walk_max), self.p_free[np.maximum(f, 0), day, slot], 0.0)
+            pf = np.where(ok & (d <= walk_max), np.minimum(self.p_free[np.maximum(f, 0), day, slot] * P_SCALE, 1.0), 0.0)
             dd = np.where(pf > 0, d, 0.0)
             walk = np.where(pf > 0, (walk * p + dd * pf * (1 - p)) / np.maximum(p + pf * (1 - p), 1e-9), walk)
             p = 1 - (1 - p) * (1 - pf)

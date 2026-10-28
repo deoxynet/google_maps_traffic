@@ -134,11 +134,11 @@ td.n { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-
         <table>
           <thead><tr><th>Check (held-out data)</th><th>Sim</th><th>Benchmark</th></tr></thead>
           <tbody>
-            <tr><td>Street-cleaning tickets per route area, 38 areas</td><td class="n">ρ 0.88</td><td class="n">—</td></tr>
-            <tr><td>Cars left at the sweep vs tickets per sweep</td><td class="n">38 vs 36</td><td class="n">—</td></tr>
-            <tr><td>Evening permit-street tickets vs outsiders turned away, 6 PM–2 AM, 539 faces</td><td class="n">ρ 0.54</td><td class="n">0.09 capacity</td></tr>
-            <tr><td>Night double parking vs search effort, 1,014 cells</td><td class="n">ρ 0.34</td><td class="n">0.34 satellite</td></tr>
-            <tr><td>Midday cars, 2010 aerial, 701 cells (Wed / Sat)</td><td class="n">ρ 0.30 / 0.39</td><td class="n">0.40 satellite</td></tr>
+            <tr><td>Street-cleaning tickets per route area, 38 areas</td><td class="n">ρ 0.85</td><td class="n">—</td></tr>
+            <tr><td>Cars left at the sweep vs tickets per sweep</td><td class="n">35 vs 36</td><td class="n">—</td></tr>
+            <tr><td>Evening permit-street tickets vs outsiders turned away, 6 PM–2 AM, 539 faces</td><td class="n">ρ 0.53</td><td class="n">0.09 capacity</td></tr>
+            <tr><td>Night double parking vs search effort, 1,010 cells</td><td class="n">ρ 0.35</td><td class="n">0.34 satellite</td></tr>
+            <tr><td>Midday cars, 2010 aerial, 701 cells (Wed / Sat)</td><td class="n">ρ 0.13 / 0.34</td><td class="n">0.39 satellite</td></tr>
             <tr><td>Capacity vs meter count, 137 metered faces</td><td class="n">±5.2 spaces</td><td class="n">±10.5 geometry</td></tr>
           </tbody>
         </table>
@@ -147,7 +147,7 @@ td.n { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-
           <li>Capacity: curb length less corner setbacks, minus driveways, hydrants, red curb and bus zones found in 2023–26 tickets.</li>
           <li>Demand: residents (parcels and census commute data, anchored to satellite car counts), commuters (LODES jobs), visitors (Google busyness ÷ dwell time, three times heavier after 5 PM).</li>
           <li>Rules: posted street cleaning, permit-district hours read from tickets, meter tow-away windows, no-stopping and loading-zone hours from tickets.</li>
-          <li>Known gaps: 3rd St to Beverly is not modeled yet; which side is swept on which day is a convention; evenings rest on ticket proxies.</li>
+          <li>Known gaps: 3rd St to Beverly is not modeled yet; evenings rest on ticket proxies; Wednesday middays match the 2010 aerial poorly (it is most likely a Saturday photo).</li>
         </ul>
       </section>
     </aside>
