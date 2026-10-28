@@ -27,8 +27,8 @@ b64 = lambda a: base64.b64encode(gzip.compress(np.ascontiguousarray(a).tobytes()
 
 
 def main():
-    S = np.load(OUT_DIR / "supply.npz")
-    N = np.load(OUT_DIR / "network.npz")
+    S = dict(np.load(OUT_DIR / "supply.npz"))
+    N = dict(np.load(OUT_DIR / "network.npz"))
     E = json.load(gzip.open(OUT_DIR / "contention_week.json.gz", "rt"))
     lots = json.load(open(OUT_DIR / "lots.json"))
     lat0, lon0 = float(S["bbox"][0]) - 0.01, float(S["bbox"][2]) - 0.01
@@ -39,9 +39,9 @@ def main():
     blocks = {}
     for e in range(len(N["src"])):
         b = int(N["block"][e])
-        line = N["line"][ls[e]:le[e]]
         if b not in blocks or N["forward"][e]:
-            blocks[b] = line if N["forward"][e] else line[::-1]
+            line = N["line"][ls[e]:le[e]]
+            blocks[b] = line.copy() if N["forward"][e] else line[::-1].copy()
     bids = sorted(blocks)
     bpos = {b: i for i, b in enumerate(bids)}
     block_lines = []

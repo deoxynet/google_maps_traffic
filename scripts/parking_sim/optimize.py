@@ -48,7 +48,7 @@ class Planner:
     def __init__(self):
         N = np.load(OUT_DIR / "network.npz")
         self.N = {k: N[k] for k in N.files}
-        S = np.load(OUT_DIR / "supply.npz")
+        S = dict(np.load(OUT_DIR / "supply.npz"))
         self.face_xy = S["xy"]
         self.maxstay = S["maxstay"]   # [face, weekday, slot] minutes, 0 = no limit
         Ex = json.load(gzip.open(OUT_DIR / "contention_week.json.gz", "rt"))

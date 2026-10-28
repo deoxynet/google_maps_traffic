@@ -83,7 +83,7 @@ def open_grid(hours):
 
 
 def main():
-    S = np.load(OUT_DIR / "supply.npz")
+    S = dict(np.load(OUT_DIR / "supply.npz"))
     lat, lon = S["latlon"][:, 0], S["latlon"][:, 1]
     b = (lat.min() - 0.005, lat.max() + 0.005, lon.min() - 0.005, lon.max() + 0.005)
     where = f"lat between {b[0]} and {b[1]} and lon between {b[2]} and {b[3]}"

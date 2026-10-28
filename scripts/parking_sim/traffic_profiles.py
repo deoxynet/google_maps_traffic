@@ -129,7 +129,7 @@ def main():
     ap.add_argument("--keyfile", default=str(BASE_DIR / "gmaps-traffic-readonly-api-key.txt"))
     args = ap.parse_args()
     env = r2_env(args.keyfile)
-    S = np.load(OUT_DIR / "supply.npz")
+    S = dict(np.load(OUT_DIR / "supply.npz"))
     lat, lon = S["latlon"][:, 0], S["latlon"][:, 1]
     bbox = (lat.min() - 0.002, lat.max() + 0.002, lon.min() - 0.002, lon.max() + 0.002)
     keys = list_keys(env, args.zoom)

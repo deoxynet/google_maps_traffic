@@ -103,6 +103,12 @@ python3 scripts/parking_sim/build_app.py           # Curb Finder app page (optim
 ## Regions
 `PARKSIM_REGION=<name>` writes every output to `data/parking_sim/<name>/` instead of the K-town default. Pass the region's `--bbox` to `supply.py` and run the street export with matching `BOUNDS`. `PARKSIM_PAR` limits how many simulated days `export.py` runs at once; lower it for big regions, since memory is the limit. `sim_area` (33.965–34.0725, −118.395 to −118.255) has 34,871 faces with parking and about 404k spaces.
 
+Pages for a region: `PARKSIM_AREA_LABEL` sets the app's area line; `PARKSIM_TITLE` (page title and heading) and `PARKSIM_AREA_TEXT` set the viewer's. For example:
+```bash
+PARKSIM_REGION=sim_area PARKSIM_AREA_LABEL="Central LA: Palms to Downtown, Manchester to 3rd St" python3 scripts/parking_sim/build_app.py
+PARKSIM_REGION=sim_area PARKSIM_TITLE="Central LA Curb Contention" PARKSIM_AREA_TEXT="Manchester Ave to 3rd St · Palms to Downtown" python3 scripts/parking_sim/build_viewer.py
+```
+
 ## Calibration and validation (2026-10-27)
 The core is K-town / Mid-Wilshire, 34.035–34.0725, −118.345 to −118.28: 5,976 faces with parking and 59,945 legal spaces.
 
@@ -152,9 +158,12 @@ Ranges are across 3 seeds:
 
 Wednesday midday was 0.21 with the old north/east convention for sweeping sides (`PARKSIM_SWEEP_SIDE=convention`); nothing else changed. The ticket-derived sides stay: they predict held-out sweep tickets' days 84% of the time, vs 50% for the convention. The likely reason Wednesday looks worse: ticket-derived sweeps fall on the sides where cars actually park, so Wednesday's sweeps displace more cars, and the 2010 aerial being compared against is most likely a Saturday with no sweeping.
 
+Overnight stock for commercial cells was tested with `PARKSIM_NIGHT_EXTRA=0.25`, i.e. 25% of the satellite-predicted stock in cells without residential parcels counts as overnight residents. Saturday midday fell to 0.18, night to 0.29 and the sweeping level to 26 vs 36, with permit spillover about flat. Midday cars on those streets really do stand in for overnight demand (likely nearby apartment residents), so the default stays at 1.0.
+
 ## Known gaps
 - North K-town (3rd St to Beverly) needs parcel data. `dtla_parcels.csv` ends at 34.073.
-- Which side of the street is swept on which day is not in the data. The convention is that the north or east side takes the earlier day.
-- Divided roads in OSM produce median-side faces that probably have no parking.
+- Swept sides are learned from where sweep tickets land. Routes with too few tickets fall back to the convention (north or east side takes the earlier day).
+- Inner faces of divided roads get zero capacity. That is right for medians, but a few wide boulevards with parking on the inner side lose it.
+- Everything outside K-town core (the night anchor, visitor scale, P_SCALE) uses K-town's calibration unchecked; the region pages are a first look.
 - Evenings rest on ticket proxies; there are no ground counts.
 - Midday spatial accuracy is just below the satellite estimator.

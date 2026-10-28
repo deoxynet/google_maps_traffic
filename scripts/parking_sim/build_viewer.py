@@ -8,6 +8,7 @@ means of the 15-minute slots. Validation numbers in the page are static text in 
 import base64
 import os
 import gzip
+import html
 import json
 import sys
 from pathlib import Path
@@ -23,7 +24,7 @@ CLASS_NAMES = ["residential", "unclassified", "living street", "tertiary", "seco
 
 
 def main():
-    S = np.load(OUT_DIR / "supply.npz")
+    S = dict(np.load(OUT_DIR / "supply.npz"))
     E = json.load(gzip.open(OUT_DIR / "contention_week.json.gz", "rt"))
     F = E["faces"]
     ids = np.array([f["id"] for f in F])
@@ -62,6 +63,8 @@ def main():
                 hardShare=share.tolist(), medianFree=med, spaces=int(cap.sum()), faces=n,
                 title=os.environ.get("PARKSIM_TITLE"), areaText=os.environ.get("PARKSIM_AREA_TEXT"))
     page = (HERE / "viewer_template.html").read_text().replace("__DATA__", json.dumps(data, separators=(",", ":")))
+    if data["title"]:   # the tab / gallery name, not just the heading
+        page = page.replace("<title>K-town Curb Contention</title>", f"<title>{html.escape(data['title'])}</title>", 1)
     dest = OUT_DIR / "viewer.html"
     dest.write_text(page)
     print(f"{n} faces -> {dest} ({dest.stat().st_size / 1e6:.1f} MB)")
