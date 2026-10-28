@@ -16,6 +16,14 @@ use std::error::Error;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
+/// One node's id, position and tags, for plain and dense nodes alike.
+type NodeTags<'a> = (
+    i64,
+    f64,
+    f64,
+    Box<dyn Iterator<Item = (&'a str, &'a str)> + 'a>,
+);
+
 #[derive(Serialize)]
 struct Output {
     signal_nodes: Vec<[f64; 2]>,
@@ -36,8 +44,8 @@ struct WaySegment {
 struct ParkingFeature {
     lat: f64,
     lon: f64,
-    kind: String,    // surface, underground, multi-storey, street_side, lane, etc.
-    capacity: u32,   // from capacity tag, or estimated from area
+    kind: String,  // surface, underground, multi-storey, street_side, lane, etc.
+    capacity: u32, // from capacity tag, or estimated from area
 }
 
 struct WaySpec {
@@ -85,7 +93,7 @@ fn parse_lanes(value: &str) -> Option<u8> {
         .trim()
         .parse::<u8>()
         .ok()
-        .filter(|&n| n >= 1 && n <= 12)
+        .filter(|&n| (1..=12).contains(&n))
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -129,17 +137,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
 
             // Building way (building=* except "no")
-            if let Some(ref bval) = building_tag {
-                if bval != "no" {
-                    let refs: Vec<i64> = way.refs().collect();
-                    if refs.len() >= 3 {
-                        for &nid in &refs {
-                            needed_node_ids.insert(nid);
-                        }
-                        building_ways.push(BuildingWaySpec { node_refs: refs });
+            if let Some(ref bval) = building_tag
+                && bval != "no"
+            {
+                let refs: Vec<i64> = way.refs().collect();
+                if refs.len() >= 3 {
+                    for &nid in &refs {
+                        needed_node_ids.insert(nid);
                     }
-                    return;
+                    building_ways.push(BuildingWaySpec { node_refs: refs });
                 }
+                return;
             }
 
             // Parking way (amenity=parking)
@@ -211,22 +219,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let reader = ElementReader::from_path(&pbf_path)?;
     reader.for_each(|element| {
-        let (id, lat, lon, tags_iter): (i64, f64, f64, Box<dyn Iterator<Item = (&str, &str)>>) =
-            match element {
-                Element::Node(ref node) => (
-                    node.id(),
-                    node.lat(),
-                    node.lon(),
-                    Box::new(node.tags()),
-                ),
-                Element::DenseNode(ref node) => (
-                    node.id(),
-                    node.lat(),
-                    node.lon(),
-                    Box::new(node.tags()),
-                ),
-                _ => return,
-            };
+        let (id, lat, lon, tags_iter): NodeTags<'_> = match element {
+            Element::Node(ref node) => (node.id(), node.lat(), node.lon(), Box::new(node.tags())),
+            Element::DenseNode(ref node) => {
+                (node.id(), node.lat(), node.lon(), Box::new(node.tags()))
+            }
+            _ => return,
+        };
 
         // Always resolve position if needed for ways
         if needed_node_ids.contains(&id) {
@@ -279,10 +278,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     })?;
 
-    println!(
-        "  {} node positions resolved",
-        node_pos.len()
-    );
+    println!("  {} node positions resolved", node_pos.len());
     println!(
         "  {} signal nodes, {} stop nodes, {} parking nodes",
         signal_node_ids.len(),
@@ -336,7 +332,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             };
             let est = (area_sqm / sqm_per_space).max(1.0) as u32;
             // Multi-storey: estimate 4 levels
-            if pw.kind == "multi-storey" { est * 4 } else { est }
+            if pw.kind == "multi-storey" {
+                est * 4
+            } else {
+                est
+            }
         };
 
         parking_way_features.push(ParkingFeature {
@@ -489,9 +489,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 continue;
             };
             // Compact JSON: s=start, e=end, l=lanes, h=highway
-            write!(
+            writeln!(
                 rwriter,
-                "{{\"s\":[{},{}],\"e\":[{},{}],\"l\":{},\"h\":\"{}\"}}\n",
+                "{{\"s\":[{},{}],\"e\":[{},{}],\"l\":{},\"h\":\"{}\"}}",
                 lat0, lon0, lat1, lon1, lanes, way.highway
             )?;
             road_seg_count += 1;

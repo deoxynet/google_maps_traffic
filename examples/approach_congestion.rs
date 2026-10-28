@@ -160,7 +160,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Collect all features across tiles
     let all_features: Vec<&TrafficFeature> = tiles.iter().flat_map(|t| &t.features).collect();
-    eprintln!("{} features across {} tiles", all_features.len(), tiles.len());
+    eprintln!(
+        "{} features across {} tiles",
+        all_features.len(),
+        tiles.len()
+    );
 
     // Match features to intersections
     let mut results: Vec<IntersectionOutput> = Vec::with_capacity(input.intersections.len());

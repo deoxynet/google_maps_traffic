@@ -123,10 +123,8 @@ impl Renderer {
         let road_program = compile_program(&gl, shaders::ROAD_VERT, shaders::ROAD_FRAG)?;
         let particle_program =
             compile_program(&gl, shaders::PARTICLE_VERT, shaders::PARTICLE_FRAG)?;
-        let blur_h_program =
-            compile_program(&gl, shaders::FULLSCREEN_VERT, shaders::BLUR_H_FRAG)?;
-        let blur_v_program =
-            compile_program(&gl, shaders::FULLSCREEN_VERT, shaders::BLUR_V_FRAG)?;
+        let blur_h_program = compile_program(&gl, shaders::FULLSCREEN_VERT, shaders::BLUR_H_FRAG)?;
+        let blur_v_program = compile_program(&gl, shaders::FULLSCREEN_VERT, shaders::BLUR_V_FRAG)?;
         let composite_program =
             compile_program(&gl, shaders::FULLSCREEN_VERT, shaders::COMPOSITE_FRAG)?;
 
@@ -328,7 +326,7 @@ impl Renderer {
         parking_green: &[f32],
         parking_yellow: &[f32],
         parking_red: &[f32],
-        parked_dots: &[f32],  // x, y pairs for parked cars
+        parked_dots: &[f32], // x, y pairs for parked cars
     ) {
         // ── Lerp camera ──
         self.cam_x += (self.target_x - self.cam_x) * 0.05;
@@ -342,8 +340,12 @@ impl Renderer {
         let hf = self.height as f32;
 
         // ── Fill particle VBOs ──
-        let (trail_vert_count, body_vert_count, point_count) =
-            particle_mesh::fill_particle_vbo(state, trail_length_m, &mut self.line_buf, &mut self.point_buf);
+        let (trail_vert_count, body_vert_count, point_count) = particle_mesh::fill_particle_vbo(
+            state,
+            trail_length_m,
+            &mut self.line_buf,
+            &mut self.point_buf,
+        );
 
         // Upload line data
         gl.bind_buffer(GL::ARRAY_BUFFER, Some(&self.particle_line_vbo));
@@ -507,8 +509,15 @@ impl Renderer {
         // ── Pass 3: Bloom (half-res, multi-pass for wider glow) ──
         gl.disable(GL::BLEND);
         // More bloom mix → more blur iterations for wider atmospheric glow
-        let bloom_iters = if bloom_mix > 2.0 { 3 } else if bloom_mix > 0.8 { 2 } else { 1 };
-        self.bloom.run(gl, &self.particle_tex, &self.empty_vao, bloom_iters);
+        let bloom_iters = if bloom_mix > 2.0 {
+            3
+        } else if bloom_mix > 0.8 {
+            2
+        } else {
+            1
+        };
+        self.bloom
+            .run(gl, &self.particle_tex, &self.empty_vao, bloom_iters);
 
         // ── Pass 4: Composite to screen ──
         gl.bind_framebuffer(GL::FRAMEBUFFER, None);
@@ -572,7 +581,13 @@ impl Renderer {
         self.width = width;
         self.height = height;
         // Resize particle FBO
-        bloom::resize_fbo_texture_pub(&self.gl, &self.particle_fbo, &self.particle_tex, width, height);
+        bloom::resize_fbo_texture_pub(
+            &self.gl,
+            &self.particle_fbo,
+            &self.particle_tex,
+            width,
+            height,
+        );
         // Resize bloom FBOs
         let _ = self.bloom.resize(&self.gl, width, height);
     }

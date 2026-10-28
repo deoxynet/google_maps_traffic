@@ -46,8 +46,7 @@ impl Simulator {
 
         let graph = Graph::from_json(graph_json).map_err(|e| JsValue::from_str(&e))?;
 
-        let renderer =
-            Renderer::new(canvas_id, &graph).map_err(|e| JsValue::from_str(&e))?;
+        let renderer = Renderer::new(canvas_id, &graph).map_err(|e| JsValue::from_str(&e))?;
 
         let mut state = ParticleState::new();
         let params = SimParams {
@@ -88,17 +87,22 @@ impl Simulator {
 
     /// Run one simulation tick + render frame.
     pub fn frame(&mut self) -> FrameStats {
-        self.state.tick(&self.graph, &self.params, &mut self.clock, self.gravity_x, self.gravity_y, self.gravity_active, self.gravity_strength);
+        self.state.tick(
+            &self.graph,
+            &self.params,
+            &mut self.clock,
+            self.gravity_x,
+            self.gravity_y,
+            self.gravity_active,
+            self.gravity_strength,
+        );
 
         // Update camera if following a car
         let following = if let Some(idx) = self.state.follow_idx {
             let i = idx as usize;
             if i < self.state.car_count as usize {
-                self.renderer.set_camera_target(
-                    self.state.car_x[i],
-                    self.state.car_y[i],
-                    4.0,
-                );
+                self.renderer
+                    .set_camera_target(self.state.car_x[i], self.state.car_y[i], 4.0);
                 true
             } else {
                 self.state.follow_idx = None;
@@ -268,7 +272,6 @@ impl Simulator {
     pub fn clear_gravity(&mut self) {
         self.gravity_active = false;
     }
-
 }
 
 fn console_error_panic_hook_set() {

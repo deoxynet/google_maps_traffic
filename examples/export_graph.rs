@@ -263,31 +263,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 speed_n += 1;
 
                 if is_graph_node.contains(&e.end_node_id) {
-                    if let (Some(fi), Some(&ti)) =
-                        (from_gn, graph_node_map.get(&e.end_node_id))
+                    if let (Some(fi), Some(&ti)) = (from_gn, graph_node_map.get(&e.end_node_id))
+                        && (fi != ti || poly.len() > 2)
                     {
-                        if fi != ti || poly.len() > 2 {
-                            let ge_idx = graph_edges.len();
-                            for &ej in &chain[seg_start..=ci] {
-                                let oe = &osm_edges[ej];
-                                osm_to_graph.insert(
-                                    (way_id, oe.start_node_id, oe.end_node_id),
-                                    ge_idx,
-                                );
-                            }
-                            graph_edges.push(GraphEdge {
-                                from_node: fi,
-                                to_node: ti,
-                                polyline: std::mem::take(&mut poly),
-                                speed_kph: if speed_n > 0 {
-                                    speed_sum / speed_n as f64
-                                } else {
-                                    40.0
-                                },
-                                oneway,
-                                congestion: [0; 24],
-                            });
+                        let ge_idx = graph_edges.len();
+                        for &ej in &chain[seg_start..=ci] {
+                            let oe = &osm_edges[ej];
+                            osm_to_graph.insert((way_id, oe.start_node_id, oe.end_node_id), ge_idx);
                         }
+                        graph_edges.push(GraphEdge {
+                            from_node: fi,
+                            to_node: ti,
+                            polyline: std::mem::take(&mut poly),
+                            speed_kph: if speed_n > 0 {
+                                speed_sum / speed_n as f64
+                            } else {
+                                40.0
+                            },
+                            oneway,
+                            congestion: [0; 24],
+                        });
                     }
                     poly.clear();
                     speed_sum = 0.0;
@@ -391,17 +386,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         edges: edges_json,
     };
 
-    if let Some(p) = Path::new(&output).parent().filter(|p| !p.as_os_str().is_empty()) {
+    if let Some(p) = Path::new(&output)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(p)?;
     }
 
     let json = serde_json::to_string(&graph)?;
     std::fs::write(&output, &json)?;
-    println!(
-        "\nWrote {} ({:.0} KB)",
-        output,
-        json.len() as f64 / 1024.0
-    );
+    println!("\nWrote {} ({:.0} KB)", output, json.len() as f64 / 1024.0);
     println!("  {} nodes, {} edges", graph.nodes.len(), graph.edges.len());
     println!("\nnext: cd web && python3 -m http.server 8080");
 

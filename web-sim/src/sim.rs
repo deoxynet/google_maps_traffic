@@ -17,9 +17,9 @@ pub struct ParticleState {
     pub car_edge: Vec<u32>,
     pub car_dir: Vec<i8>,
     pub car_t: Vec<f32>,
-    pub car_accel: Vec<f32>,        // [0, 1] smooth speed multiplier
-    pub car_green_wait: Vec<u8>,    // frames until allowed to move (queue discharge stagger)
-    pub car_ttl: Vec<u8>,           // edges remaining until despawn
+    pub car_accel: Vec<f32>,     // [0, 1] smooth speed multiplier
+    pub car_green_wait: Vec<u8>, // frames until allowed to move (queue discharge stagger)
+    pub car_ttl: Vec<u8>,        // edges remaining until despawn
 
     // Per-edge queue tracking (reset each tick)
     pub edge_queue_tail_fwd: Vec<f32>, // rearmost stopped car t-position (1.1 = no queue)
@@ -36,7 +36,7 @@ pub struct ParticleState {
     // Computed each tick — head and tail positions for rendering
     pub car_x: Vec<f32>,
     pub car_y: Vec<f32>,
-    pub car_tx: Vec<f32>,  // 5m body tail
+    pub car_tx: Vec<f32>, // 5m body tail
     pub car_ty: Vec<f32>,
 
     // Per-car lateral jitter: random offset in [-1, 1], applied as render-only perpendicular shift
@@ -49,15 +49,15 @@ pub struct ParticleState {
     pub car_trail_len: Vec<u8>,  // valid entries per car (0..TRAIL_LEN)
 
     // Parking simulation
-    pub car_seeking: Vec<bool>,        // is this car a parking seeker?
-    pub parking_occupancy: Vec<u32>,   // current occupancy per node (indexed by node index)
-    pub parked_total: u32,             // total cars currently parked
-    pub seeking_count: u32,            // current seekers in traffic
+    pub car_seeking: Vec<bool>,      // is this car a parking seeker?
+    pub parking_occupancy: Vec<u32>, // current occupancy per node (indexed by node index)
+    pub parked_total: u32,           // total cars currently parked
+    pub seeking_count: u32,          // current seekers in traffic
 
     // Park flash: brief glow when a car parks (ring buffer, max 256 active)
-    pub parked_x: Vec<f32>,            // positions of parked cars (persistent)
+    pub parked_x: Vec<f32>, // positions of parked cars (persistent)
     pub parked_y: Vec<f32>,
-    pub parked_node: Vec<u32>,          // which node each parked car is at (for departure removal)
+    pub parked_node: Vec<u32>, // which node each parked car is at (for departure removal)
 
     pub car_count: u32,
     pub follow_idx: Option<u32>,
@@ -169,7 +169,16 @@ impl ParticleState {
         }
     }
 
-    pub fn tick(&mut self, graph: &Graph, params: &SimParams, clock: &mut SimClock, gravity_x: f32, gravity_y: f32, gravity_active: bool, gravity_strength: f32) {
+    pub fn tick(
+        &mut self,
+        graph: &Graph,
+        params: &SimParams,
+        clock: &mut SimClock,
+        gravity_x: f32,
+        gravity_y: f32,
+        gravity_active: bool,
+        gravity_strength: f32,
+    ) {
         self.gravity_transfers = 0;
         if params.day_speed > 0.0 {
             // day_speed controls how many sim-seconds to advance per frame.
@@ -193,7 +202,16 @@ impl ParticleState {
                 clock.next_hour = (clock.current_hour + 1) % 24;
                 clock.hour_blend = clock.sim_time % 1.0;
 
-                self.physics_step(graph, params, clock, dt_per_tick, gravity_x, gravity_y, gravity_active, gravity_strength);
+                self.physics_step(
+                    graph,
+                    params,
+                    clock,
+                    dt_per_tick,
+                    gravity_x,
+                    gravity_y,
+                    gravity_active,
+                    gravity_strength,
+                );
             }
         }
 
@@ -240,7 +258,17 @@ impl ParticleState {
 
     /// One physics tick: move cars, handle signals, queue.
     /// dt_seconds is the sim-seconds this tick represents.
-    fn physics_step(&mut self, graph: &Graph, _params: &SimParams, clock: &SimClock, dt_seconds: f32, gravity_x: f32, gravity_y: f32, gravity_active: bool, gravity_strength: f32) {
+    fn physics_step(
+        &mut self,
+        graph: &Graph,
+        _params: &SimParams,
+        clock: &SimClock,
+        dt_seconds: f32,
+        gravity_x: f32,
+        gravity_y: f32,
+        gravity_active: bool,
+        gravity_strength: f32,
+    ) {
         let period_off = signal_period_offset(clock.current_hour);
 
         // Reset per-edge queue tracking
@@ -277,7 +305,11 @@ impl ParticleState {
             let t = self.car_t[c];
             // Sort key: edge in upper bits, dir in bit 32, t-bits in lower 32.
             // For fwd: ascending t (behind→ahead). For rev: descending t (behind→ahead).
-            let t_bits = if dir_bit == 0 { t.to_bits() as u64 } else { !(t.to_bits()) as u64 };
+            let t_bits = if dir_bit == 0 {
+                t.to_bits() as u64
+            } else {
+                !(t.to_bits()) as u64
+            };
             let key = (ei << 33) | (dir_bit << 32) | t_bits;
             self.follow_sort.push((key, c as u32));
             self.car_lead_t[c] = f32::NAN;
@@ -315,11 +347,9 @@ impl ParticleState {
                 let lanes = graph.edge_lanes[ei].max(1) as f32;
                 let gap_t = (base_gap_px / lanes) / total_len;
                 if dir > 0 {
-                    self.edge_queue_tail_fwd[ei] =
-                        self.edge_queue_tail_fwd[ei].min(car_t - gap_t);
+                    self.edge_queue_tail_fwd[ei] = self.edge_queue_tail_fwd[ei].min(car_t - gap_t);
                 } else {
-                    self.edge_queue_tail_rev[ei] =
-                        self.edge_queue_tail_rev[ei].max(car_t + gap_t);
+                    self.edge_queue_tail_rev[ei] = self.edge_queue_tail_rev[ei].max(car_t + gap_t);
                 }
                 i += 1;
                 continue;
@@ -357,7 +387,8 @@ impl ParticleState {
                 let dy = gravity_y - cy;
                 let dist = (dx * dx + dy * dy).sqrt();
                 let grav_slow = (1.0 - dist / 600.0).max(0.0);
-                let grav_factor = (1.0 - grav_slow * grav_slow * (gravity_strength / 100.0) * 0.7).max(0.10);
+                let grav_factor =
+                    (1.0 - grav_slow * grav_slow * (gravity_strength / 100.0) * 0.7).max(0.10);
                 base_dt *= grav_factor;
             }
 
@@ -382,13 +413,18 @@ impl ParticleState {
                 let follow_time = 1.5; // seconds of headway
                 let min_follow_m = 10.0; // minimum gap even when nearly stopped
                 let min_follow_t = min_follow_m / (METERS_PER_PIXEL * total_len);
-                let follow_gap = (speed_t_per_s * self.car_accel[idx] * follow_time).max(min_follow_t);
+                let follow_gap =
+                    (speed_t_per_s * self.car_accel[idx] * follow_time).max(min_follow_t);
                 let follow_stop = if dir > 0 {
                     (lead - follow_gap).max(0.0)
                 } else {
                     (lead + follow_gap).min(1.0)
                 };
-                let is_ahead = if dir > 0 { follow_stop > car_t + 0.001 } else { follow_stop < car_t - 0.001 };
+                let is_ahead = if dir > 0 {
+                    follow_stop > car_t + 0.001
+                } else {
+                    follow_stop < car_t - 0.001
+                };
                 if is_ahead {
                     stop = Some(match stop {
                         Some(s) if dir > 0 => s.min(follow_stop),
@@ -480,11 +516,21 @@ impl ParticleState {
                     let overshoot_frac = cur_t - 1.0;
                     let node = graph.edge_to[cur_ei];
                     self.car_accel[idx] = 0.5;
-                    if !self.transfer_car(idx, node, graph, gravity_x, gravity_y, gravity_active, gravity_strength) {
+                    if !self.transfer_car(
+                        idx,
+                        node,
+                        graph,
+                        gravity_x,
+                        gravity_y,
+                        gravity_active,
+                        gravity_strength,
+                    ) {
                         break; // despawned
                     }
                     hops += 1;
-                    if hops >= 4 { break; }
+                    if hops >= 4 {
+                        break;
+                    }
                     // Convert overshoot from old edge to new edge (by pixel length ratio)
                     let old_len = graph.edge_total_len[cur_ei].max(1.0);
                     let new_ei = self.car_edge[idx] as usize;
@@ -500,11 +546,21 @@ impl ParticleState {
                     let overshoot_frac = -cur_t;
                     let node = graph.edge_from[cur_ei];
                     self.car_accel[idx] = 0.5;
-                    if !self.transfer_car(idx, node, graph, gravity_x, gravity_y, gravity_active, gravity_strength) {
+                    if !self.transfer_car(
+                        idx,
+                        node,
+                        graph,
+                        gravity_x,
+                        gravity_y,
+                        gravity_active,
+                        gravity_strength,
+                    ) {
                         break; // despawned
                     }
                     hops += 1;
-                    if hops >= 4 { break; }
+                    if hops >= 4 {
+                        break;
+                    }
                     let old_len = graph.edge_total_len[cur_ei].max(1.0);
                     let new_ei = self.car_edge[idx] as usize;
                     let new_len = graph.edge_total_len[new_ei].max(1.0);
@@ -570,7 +626,16 @@ impl ParticleState {
 
     /// Select next edge at intersection using turn ratios.
     /// Returns false if car was despawned (dead end or TTL expired).
-    fn transfer_car(&mut self, idx: usize, node_idx: u32, graph: &Graph, gravity_x: f32, gravity_y: f32, gravity_active: bool, gravity_strength: f32) -> bool {
+    fn transfer_car(
+        &mut self,
+        idx: usize,
+        node_idx: u32,
+        graph: &Graph,
+        gravity_x: f32,
+        gravity_y: f32,
+        gravity_active: bool,
+        gravity_strength: f32,
+    ) -> bool {
         // Decrement TTL
         if self.car_ttl[idx] == 0 {
             self.despawn_car(idx);
@@ -590,7 +655,9 @@ impl ParticleState {
             let dx = gravity_x - nx;
             let dy = gravity_y - ny;
             let dist = (dx * dx + dy * dy).sqrt();
-            if dist < 200.0 && self.parking_occupancy[node_idx as usize] < graph.node_parking[node_idx as usize] {
+            if dist < 200.0
+                && self.parking_occupancy[node_idx as usize] < graph.node_parking[node_idx as usize]
+            {
                 // Park successfully — add persistent parked car dot with jitter
                 self.parking_occupancy[node_idx as usize] += 1;
                 self.parked_total += 1;
@@ -694,10 +761,14 @@ impl ParticleState {
             // strength 30-70: strong pull, cars noticeably reroute
             // strength 70-100: full Moses mode, pure greedy toward cursor
             let falloff = 1500.0; // radius of influence in graph px (~half the map)
-            // power scales quadratically: 0→0, 50→25, 100→100
+                                  // power scales quadratically: 0→0, 50→25, 100→100
             let base_power = gravity_strength * gravity_strength / 100.0;
             // Seekers get 2x gravity pull to converge on the event
-            let power = if self.car_seeking[idx] { base_power * 2.0 } else { base_power };
+            let power = if self.car_seeking[idx] {
+                base_power * 2.0
+            } else {
+                base_power
+            };
 
             let mut weights = [0.0f32; 16];
             let mut total_weight = 0.0f32;
@@ -706,7 +777,8 @@ impl ParticleState {
                 let ta = exit_turn_angle[j];
 
                 // Base weight from turn-type classification
-                let is_uturn = (ta.abs() - std::f32::consts::PI).abs() < std::f32::consts::FRAC_PI_4;
+                let is_uturn =
+                    (ta.abs() - std::f32::consts::PI).abs() < std::f32::consts::FRAC_PI_4;
                 let turn_prob = if is_uturn {
                     0.01
                 } else if ta.abs() < std::f32::consts::FRAC_PI_4 {
@@ -792,11 +864,7 @@ impl ParticleState {
 
         self.car_edge[idx] = exit_ei[chosen];
         self.car_dir[idx] = exit_dir[chosen];
-        self.car_t[idx] = if exit_dir[chosen] > 0 {
-            0.001
-        } else {
-            0.999
-        };
+        self.car_t[idx] = if exit_dir[chosen] > 0 { 0.001 } else { 0.999 };
 
         // Queue discharge stagger: assign wait based on queue position
         // (will be set by find_stop_point on next tick if signal is red)
@@ -890,7 +958,8 @@ impl ParticleState {
         self.car_green_wait[idx] = 0;
 
         // Parking seeker: 40% of new cars when gravity active
-        let seeking = gravity_active && !graph.parking_nodes.is_empty() && self.rng.next_f32() < 0.4;
+        let seeking =
+            gravity_active && !graph.parking_nodes.is_empty() && self.rng.next_f32() < 0.4;
         self.car_seeking[idx] = seeking;
         if seeking {
             self.car_ttl[idx] = 255; // seekers circulate until they park
@@ -984,10 +1053,18 @@ fn bearing_to_approach(bearing: f32) -> u32 {
     let abs_b = bearing.abs();
     if abs_b > std::f32::consts::FRAC_PI_4 && abs_b < 3.0 * std::f32::consts::FRAC_PI_4 {
         // East or West
-        if bearing > 0.0 { 0 } else { 1 } // EB : WB
+        if bearing > 0.0 {
+            0
+        } else {
+            1
+        } // EB : WB
     } else {
         // North or South
-        if abs_b > std::f32::consts::FRAC_PI_2 { 2 } else { 3 } // NB : SB
+        if abs_b > std::f32::consts::FRAC_PI_2 {
+            2
+        } else {
+            3
+        } // NB : SB
     }
 }
 
@@ -1028,9 +1105,7 @@ fn find_stop_point(
         // Red signal at edge end? (skip for freeways)
         if !is_freeway {
             let node = graph.edge_to[ei] as usize;
-            if node < graph.node_count as usize
-                && graph.node_signal[node * 8 + period_off] > 0.0
-            {
+            if node < graph.node_count as usize && graph.node_signal[node * 8 + period_off] > 0.0 {
                 let bearing = graph.edge_bearing_fwd[ei];
                 if !is_signal_green(graph.edge_to[ei], bearing, graph, clock) {
                     stop = Some(0.98);
@@ -1057,9 +1132,7 @@ fn find_stop_point(
         // Red signal at edge start? (skip for freeways)
         if !is_freeway {
             let node = graph.edge_from[ei] as usize;
-            if node < graph.node_count as usize
-                && graph.node_signal[node * 8 + period_off] > 0.0
-            {
+            if node < graph.node_count as usize && graph.node_signal[node * 8 + period_off] > 0.0 {
                 let bearing = graph.edge_bearing_rev[ei];
                 if !is_signal_green(graph.edge_from[ei], bearing, graph, clock) {
                     stop = Some(0.02);

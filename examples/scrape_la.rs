@@ -17,9 +17,9 @@
 //!   ZOOMS=12,13,14,15   Comma-separated zoom levels (default: all four)
 //!   OUTPUT_DIR=.         Directory for output files (default: current dir)
 
-use flate2::write::GzEncoder;
 use flate2::Compression;
-use google_maps_traffic::{Bounds, CongestionLevel, IncidentType, TrafficClient, TileCoord};
+use flate2::write::GzEncoder;
+use google_maps_traffic::{Bounds, CongestionLevel, IncidentType, TileCoord, TrafficClient};
 use serde::Serialize;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -108,7 +108,7 @@ fn round5(v: f64) -> f64 {
 }
 
 fn unix_to_iso(secs: u64) -> String {
-    let days = (secs / 86400) as u64;
+    let days = secs / 86400;
     let time_of_day = secs % 86400;
     let h = time_of_day / 3600;
     let m = (time_of_day % 3600) / 60;
@@ -205,15 +205,18 @@ async fn scrape_zoom(
             .cmp(&b.description)
             .then(a.lat.map(|v| v.to_bits()).cmp(&b.lat.map(|v| v.to_bits())))
     });
-    incidents.dedup_by(|a, b| {
-        a.description == b.description && a.lat == b.lat && a.lon == b.lon
-    });
+    incidents.dedup_by(|a, b| a.description == b.description && a.lat == b.lat && a.lon == b.lon);
 
     let snapshot = Snapshot {
         timestamp: now_secs,
         datetime: datetime.to_string(),
         zoom,
-        bounds: [LA_BOUNDS.south, LA_BOUNDS.west, LA_BOUNDS.north, LA_BOUNDS.east],
+        bounds: [
+            LA_BOUNDS.south,
+            LA_BOUNDS.west,
+            LA_BOUNDS.north,
+            LA_BOUNDS.east,
+        ],
         tile_count: tiles.len(),
         summary,
         features,
@@ -284,7 +287,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Output: one line per zoom with "filepath r2_key" for the CI upload step
     for &zoom in &zooms {
-        let (filepath, r2_key) = scrape_zoom(&client, zoom, &output_dir, now_secs, &datetime).await?;
+        let (filepath, r2_key) =
+            scrape_zoom(&client, zoom, &output_dir, now_secs, &datetime).await?;
         println!("{filepath} {r2_key}");
     }
 

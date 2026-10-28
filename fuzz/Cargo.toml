@@ -7,6 +7,11 @@ edition = "2024"
 [package.metadata]
 cargo-fuzz = true
 
+# Its own workspace: the root workspace lists "." as a member, which makes cargo ignore workspace.exclude
+# for anything below the root, so cargo-fuzz would see this crate as an unlisted member.
+[workspace]
+members = ["."]
+
 [dependencies]
 libfuzzer-sys = "0.4"
 

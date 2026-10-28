@@ -1,6 +1,4 @@
-use google_maps_traffic::{
-    CongestionLevel, DayOfWeek, TileCoord, TrafficClient, TrafficTile,
-};
+use google_maps_traffic::{CongestionLevel, DayOfWeek, TileCoord, TrafficClient, TrafficTile};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
@@ -38,8 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         POLL_INTERVAL.as_secs() * POLL_COUNT as u64 / 60,
     );
     println!(
-        "{:>6} {:>4} {:>18} {:>5} {:>4} {:>30} {:>6}  {}",
-        "time", "poll", "hash", "feats", "incs", "congestion", "ms", "notes"
+        "{:>6} {:>4} {:>18} {:>5} {:>4} {:>30} {:>6}  notes",
+        "time", "poll", "hash", "feats", "incs", "congestion", "ms"
     );
     println!("{}", "-".repeat(100));
 
@@ -64,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let hash = hash_tile_state(&tile);
-        let changed = prev_hash.map_or(false, |prev| prev != hash);
+        let changed = prev_hash.is_some_and(|prev| prev != hash);
 
         let elapsed = start.elapsed().as_secs();
         let congestion = summarize_congestion(&tile);
@@ -130,8 +128,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("  change {}: {interval:.0}s after previous", i + 1);
         }
     } else {
-        println!("No changes detected in {} polls — data was static the entire time.",
-            POLL_COUNT);
+        println!(
+            "No changes detected in {} polls — data was static the entire time.",
+            POLL_COUNT
+        );
     }
 
     Ok(())

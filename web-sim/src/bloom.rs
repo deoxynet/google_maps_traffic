@@ -64,7 +64,13 @@ impl BloomPass {
 
     /// Run multi-pass separable blur: source_tex → pong (H) → ping (V), repeated.
     /// More iterations = wider, softer glow. After this, ping_tex contains the result.
-    pub fn run(&self, gl: &GL, source_tex: &WebGlTexture, empty_vao: &web_sys::WebGlVertexArrayObject, iterations: u32) {
+    pub fn run(
+        &self,
+        gl: &GL,
+        source_tex: &WebGlTexture,
+        empty_vao: &web_sys::WebGlVertexArrayObject,
+        iterations: u32,
+    ) {
         let tx = 1.0 / self.half_w as f32;
         let ty = 1.0 / self.half_h as f32;
         let hw = self.half_w as i32;
