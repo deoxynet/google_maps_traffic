@@ -43,6 +43,22 @@ python3 scripts/parking_sim/build_app.py           # Curb Finder app page (optim
   - 30 destinations, 5 time slots, 6 start times.
   - Optimized: 7.9 min to the door. Typical circling: 14.7 min. The optimized loop was faster or equal in 89% of 900 paired trips.
   - With 0.25, predicted loop times match the probes within about 0.8 min in every slot.
+- **By hour** (`evaluate_routes.py --scenarios ...`, 20 destinations × 4 start times, 800 paired trips): minutes to the door, optimized vs typical circling. Overall 6.5 vs 12.7; optimized is faster or equal in 87% of trips.
+
+  | Time | Optimized | Typical circling |
+  |---|---|---|
+  | Wed 8am | 3.4 | 6.1 |
+  | Wed noon | 4.2 | 8.0 |
+  | Wed 5pm | 6.1 | 12.9 |
+  | Wed 7pm | 7.6 | 15.5 |
+  | Wed 9pm | 7.9 | 16.7 |
+  | Wed 11pm | 7.9 | 15.3 |
+  | Sat 11am | 5.2 | 7.3 |
+  | Sat 2pm | 6.8 | 12.7 |
+  | Sat 7pm | 7.8 | 15.6 |
+  | Sat 10pm | 7.9 | 16.5 |
+
+  Predictions run slightly cautious at midday (e.g. 5.4 predicted vs 4.2 actual at Wed noon).
 - **App (`build_app.py` → `data/parking_sim/app.html`):** the same optimizer, ported to JavaScript.
   - The app uses hourly chances, so its plans can differ slightly from the 15-minute Python ones.
   - Tap a destination, then choose day, arrival time, walk limit and stay.

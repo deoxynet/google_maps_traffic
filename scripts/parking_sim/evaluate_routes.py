@@ -63,7 +63,11 @@ def main():
     ap.add_argument("--dests", type=int, default=30)
     ap.add_argument("--probes", type=int, default=6)
     ap.add_argument("--walk", type=float, default=400)
+    ap.add_argument("--scenarios", help='comma-separated "Day HH:MM" list, e.g. "Wed 08:00,Sat 21:00"')
     args = ap.parse_args()
+    global SCENARIOS
+    if args.scenarios:
+        SCENARIOS = [tuple(x.strip().split()) for x in args.scenarios.split(",")]
     pl = Planner()
     S = dict(np.load(OUT_DIR / "supply.npz"))
     dests = destinations(S, args.dests)
