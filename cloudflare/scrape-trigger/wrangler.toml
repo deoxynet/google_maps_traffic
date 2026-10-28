@@ -1,0 +1,15 @@
+# Cron-only Worker that starts the GitHub traffic scraper every 15 minutes (see src/index.js).
+# Deploy:  wrangler deploy
+# Token:   tr -d '\r\n' < ../../gh-pat-token.txt | wrangler secret put GH_TOKEN
+name = "gmaps-traffic-scrape-trigger"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = false    # no public URL: the Worker only runs on its cron
+
+[triggers]
+crons = ["7,22,37,52 * * * *"]
+
+[vars]
+REPO = "deoxynet/google_maps_traffic"
+WORKFLOW = "scrape.yml"
+REF = "master"
