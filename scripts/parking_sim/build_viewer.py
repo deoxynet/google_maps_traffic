@@ -25,15 +25,15 @@ CLASS_NAMES = ["residential", "unclassified", "living street", "tertiary", "seco
 REGION_VALIDATION = dict(
     title="How the simulator checks out (each area held out)",
     columns=["Check (held-out data)", "K-town core", "Mid-City–Fairfax", "Koreatown–Westlake", "South LA"],
-    rows=[["Street-cleaning tickets per route area, ρ", "0.84–0.86", "0.89–0.90", "0.55–0.58", "0.78–0.81"],
-          ["Cars left at the sweep vs tickets per sweep", "32 vs 36", "34–39 vs 32", "30–33 vs 38", "43–47 vs 38"],
-          ["Evening permit-street tickets vs outsiders turned away, ρ", "0.49–0.52", "0.43–0.44", "0.71–0.73", "0.07–0.08"],
-          ["Night double parking vs occupancy, ρ", "0.30–0.31", "0.25–0.26", "0.24–0.25", "0.51–0.53"],
-          ["Same, beyond what capacity alone explains", "0.08–0.10", "0.18–0.19", "0.21–0.22", "0.31–0.33"],
-          ["Midday cars, 2010 aerial (a Monday, 12–2 PM), ρ", "0.22–0.27", "0.21–0.29", "0.14–0.18", "0.35–0.40"],
+    rows=[["Street-cleaning tickets per route area, ρ", "0.84–0.86", "0.85–0.91", "0.54–0.57", "0.79–0.83"],
+          ["Cars left at the sweep vs tickets per sweep", "30–37 vs 36", "34–35 vs 32", "29–33 vs 38", "45–52 vs 38"],
+          ["Evening permit-street tickets vs outsiders turned away, ρ", "0.50–0.52", "0.43–0.44", "0.72", "0.07–0.08"],
+          ["Night double parking vs occupancy, ρ", "0.29–0.33", "0.25–0.26", "0.24–0.26", "0.50–0.53"],
+          ["Same, beyond what capacity alone explains", "0.07–0.11", "0.18–0.19", "0.21–0.22", "0.30–0.34"],
+          ["Midday cars, 2010 aerial (a Monday, 12–2 PM), ρ", "0.25–0.30", "0.22–0.30", "0.14–0.18", "0.36–0.37"],
           ["Satellite estimator alone, same cells", "0.39", "0.33", "0.41", "0.47"]],
     note="Each area's satellite anchor is trained without that area. In the simulation, the suggested loops get drivers to the door "
-         "in 4.7 min on average vs 8.6 min for typical circling (1,200 trips across the region). South LA's permit "
+         "in 4.7 min on average vs 8.7 min for typical circling (1,200 trips across the region). South LA's permit "
          "streets are not reproduced yet: strip-mall lots are missing from the data.")
 
 

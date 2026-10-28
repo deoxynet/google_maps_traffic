@@ -174,16 +174,16 @@ Overnight stock for commercial cells was tested with `PARKSIM_NIGHT_EXTRA=0.25`,
 - Koreatown–Westlake: 34.02–34.0725, −118.325 to −118.255
 - South LA: 33.965–34.02, full width
 
-The K-town core column reruns the K-town-only build with the same metrics. Ranges are across 3 seeds.
+The K-town core column reruns the K-town-only build with the same metrics. Ranges are across 3 seeds, with sweep sides from address parity (below).
 
 | Check | K-town core | Mid-City–Fairfax | Koreatown–Westlake | South LA |
 |---|---|---|---|---|
-| Sweeping tickets per route area, ρ | 0.84–0.86 (38 areas) | 0.89–0.90 (48) | 0.55–0.58 (57) | 0.78–0.81 (63) |
-| Cars left per sweep vs tickets per sweep | 32 vs 36 | 34–39 vs 32 | 30–33 vs 38 | 43–47 vs 38 |
-| Evening permit tickets vs outsiders turned away, ρ | 0.49–0.52 (539 faces) | 0.43–0.44 (1,363) | 0.71–0.73 (465) | 0.07–0.08 (196) |
-| Night double parking vs occupancy, ρ | 0.30–0.31 | 0.25–0.26 | 0.24–0.25 | 0.51–0.53 |
-| Same, beyond capacity per curb-km (partial ρ) | 0.08–0.10 | 0.18–0.19 | 0.21–0.22 | 0.31–0.33 |
-| Midday cars, 2010 aerial, Monday 12–2pm, ρ | 0.22–0.27 | 0.21–0.29 | 0.14–0.18 | 0.35–0.40 |
+| Sweeping tickets per route area, ρ | 0.84–0.86 (38 areas) | 0.85–0.91 (48) | 0.54–0.57 (57) | 0.79–0.83 (63) |
+| Cars left per sweep vs tickets per sweep | 30–37 vs 36 | 34–35 vs 32 | 29–33 vs 38 | 45–52 vs 38 |
+| Evening permit tickets vs outsiders turned away, ρ | 0.50–0.52 (539 faces) | 0.43–0.44 (1,363) | 0.72 (465) | 0.07–0.08 (196) |
+| Night double parking vs occupancy, ρ | 0.29–0.33 | 0.25–0.26 | 0.24–0.26 | 0.50–0.53 |
+| Same, beyond capacity per curb-km (partial ρ) | 0.07–0.11 | 0.18–0.19 | 0.21–0.22 | 0.30–0.34 |
+| Midday cars, 2010 aerial, Monday 12–2pm, ρ | 0.25–0.30 | 0.22–0.30 | 0.14–0.18 | 0.36–0.37 |
 | Satellite estimator alone, same cells | 0.39 | 0.33 | 0.41 | 0.47 |
 
 What it shows:
@@ -195,7 +195,7 @@ What it shows:
   - Halving daytime visitors, with evenings unchanged (`PARKSIM_VISITOR_SCALE=0.125`, `PARKSIM_VISITOR_EVENING=6`).
   - A 2% commuter curb share (`PARKSIM_COMMUTER_CURB=0.02`), which also pushed sweeping levels further from the tickets (South LA 52 vs 38).
   The night anchor rescales residents so the midday total still matches, so cutting other demand mostly adds residents back. The blur comes from overall saturation and overflow, not one component. Defaults stay.
-- **Search-path optimizer, region-wide** (`evaluate_routes.py --dests 40`, probes in a fresh seed): 4.7 vs 8.6 min to the door over 1,200 paired trips; optimized faster or equal in 82%. Planned times run about 1–1.5 min high, so the app is conservative.
+- **Search-path optimizer, region-wide** (`evaluate_routes.py --dests 40`, probes in a fresh seed; final data with parity sweep sides and P_SCALE 0.5): 4.7 vs 8.7 min to the door over 1,200 paired trips; optimized faster or equal in 83%. K-town (`--dests 30`): 7.6 vs 14.8 min over 900, 92%. Planned loop times are within about 0.5 min of the probes, except K-town Sat 1pm (1 min low).
 
 **Sweep sides from address parity (2026-10-28).** Snapped tickets agree with the parity convention only 59% of the time, so the old snapped-face sides were mostly noise.
 - Keyed by (route, street, parity): blocks with both sides swept the same day fell from 35% to 10% in K-town, and from 41% to 4% among ticket-learned blocks. Ticket-learned blocks rose from 1,444 to 3,145.
@@ -209,13 +209,14 @@ What it shows:
   | Koreatown–Westlake | 0.18 → 0.18 | — | 0.55 → 0.55 |
   | South LA | 0.40 → 0.37 | — | 0.78 → 0.81 |
 
-- Night and permit checks barely move, since they pool both sides. The table above predates this fix.
+- Night and permit checks barely move, since they pool both sides. The table above is rerun with this fix.
 
 To reproduce one box: `PARKSIM_REGION=sim_area PARKSIM_HOLDOUT=33.965,34.02,-118.395,-118.255 PARKSIM_OUT=/tmp/v PARKSIM_PAR=3 python3 scripts/parking_sim/validate.py` (about 3 min, 4 GB). Add `PARKSIM_REUSE=1` to rescore saved days.
 
 ## Known gaps
 - North K-town (3rd St to Beverly) needs parcel data. `dtla_parcels.csv` ends at 34.073.
-- Swept sides are learned from where sweep tickets land. Routes with too few tickets fall back to the convention (north or east side takes the earlier day).
+- Swept sides come from sweep tickets' house-number parity (odd = north / west). Streets with too few tickets, or no OSM name, fall back to the convention (north or east side takes the earlier day). That is 8,001 of 31,187 swept faces in `sim_area`.
+- The 2010 aerial reads as a Monday ~12–2pm (by the parity sides, and by the old ones), but Esri's metadata says May 25, a Tuesday. If the metadata is right, the parity convention would have to be reversed. Landmarks (LACMA 5905 and the Petersen 6060 on Wilshire; Disney Hall at 111 S Grand) and the tickets' own slight lean (59% vs 41%) both say it isn't.
 - Inner faces of divided roads get zero capacity. That is right for medians, but a few wide boulevards with parking on the inner side lose it.
 - The region uses K-town's calibration (visitor scale, night scale); P_SCALE was checked region-wide. Held-out checks above say it transfers, except South LA permit spillover.
 - The anchor's reference day is still Wednesday 11–13h. The aerial is a Monday 12–2pm; the levels differ little (about 35 vs 33 cars/km).
