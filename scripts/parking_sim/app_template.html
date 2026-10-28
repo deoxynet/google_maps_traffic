@@ -112,6 +112,7 @@ aside { display: grid; gap: 12px; min-width: 0; }
         <p class="route" id="routeLine"></p>
         <div class="links" id="links"></div>
         <p class="small" id="altLine"></p>
+        <p class="small" id="caveat" hidden>Evening and night estimates are the model's best guess: they are checked against parking tickets, not real trips yet. Logging your trips below calibrates them.</p>
       </section>
 
       <section class="card" aria-labelledby="logTitle">
@@ -360,6 +361,8 @@ aside { display: grid; gap: 12px; min-width: 0; }
       const gain = best(P) - best(state.alt);
       if (gain > 30) { alt.textContent = `Walking up to 800 m would save about ${(gain / 60).toFixed(1)} min. `; const b = document.createElement('button'); b.className = 'btn'; b.type = 'button'; b.textContent = 'Use 800 m'; b.onclick = () => setWalk(800); alt.appendChild(b); }
     }
+    const hr = Math.floor(state.minute / 60);
+    document.getElementById('caveat').hidden = !(hr >= 17 || hr < 2);
     document.getElementById('saveBtn').disabled = !(state.outcome && db);
     draw();
   }
