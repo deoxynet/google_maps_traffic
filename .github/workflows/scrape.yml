@@ -2,8 +2,9 @@ name: Traffic Scraper
 
 on:
   schedule:
-    # Every 5 minutes, around the clock (overnight snapshots give the free-flow baseline)
-    - cron: '*/5 * * * *'
+    # Every 15 minutes, around the clock (overnight snapshots give the free-flow baseline).
+    # Off the hour marks: GitHub delays or drops scheduled runs most at the top of the hour.
+    - cron: '7,22,37,52 * * * *'
     # Weekly keepalive: GitHub disables scheduled workflows in public repos after 60 days without activity
     - cron: '17 12 * * 1'
   workflow_dispatch:
