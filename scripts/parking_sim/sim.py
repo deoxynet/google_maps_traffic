@@ -198,6 +198,8 @@ NIGHT_SCALE = float(os.environ.get("PARKSIM_NIGHT_SCALE", 1.3))  # CAL: overnigh
 # Night anchor, cells with no residential parcels (commercial strips): share of the satellite stock treated as
 # overnight residents. Midday cars there are mostly visitors and workers who leave at night.
 NIGHT_EXTRA = float(os.environ.get("PARKSIM_NIGHT_EXTRA", 1.0))
+# validation holdout "lat0,lat1,lon0,lon1": the anchor is trained without these cells (default: the whole core)
+HOLDOUT = tuple(float(v) for v in os.environ["PARKSIM_HOLDOUT"].split(",")) if os.environ.get("PARKSIM_HOLDOUT") else None
 MIDDAY = slice(44, 52)  # 11:00-13:00
 ANCHOR_PASSES = 0       # fixed-point refinement diverges: overflow moves cars between cells
 
@@ -207,7 +209,7 @@ def cell_keys(points):
     return c[:, 0] * 1_000_000 + c[:, 1]
 
 
-def anchor_multipliers(S, D, exclude_core, mode="midday"):
+def anchor_multipliers(S, D, exclude_bbox, mode="midday"):
     """Per-cell resident-stock multipliers from the satellite-trained estimator.
 
     midday: each cell's simulated midday (reference Wednesday) matches the estimator.
@@ -224,7 +226,7 @@ def anchor_multipliers(S, D, exclude_core, mode="midday"):
         sim.run(dd)
         passes[name] = np.bincount(fcell, weights=(sim.occ_sum[:, MIDDAY] / 15).mean(1), minlength=len(keys))
     R, O = passes["residents"], passes["others"]
-    T = midday_targets(keys, exclude_bbox=tuple(S["bbox"]) if exclude_core else None)
+    T = midday_targets(keys, exclude_bbox=exclude_bbox)
     present = R.sum() / max(len(D["residents"]["xy"]), 1)      # share of resident cars home at midday
     if mode == "night":
         hk = [pos[k] for k in cell_keys(D["residents"]["xy"]) if k in pos]
@@ -296,13 +298,15 @@ def prepare_day(S, weekday, anchor="night", anchor_train_all=False, verbose=True
     if anchor != "none":
         tag = (f"cs{demand.ONSTREET_COMMUTE_SHARE}_cc{demand.COMMUTER_CURB}_vs{demand.VISITOR_SCALE}"
                f"_ve{demand.VISITOR_EVENING}_ns{NIGHT_SCALE}" + (f"_ne{NIGHT_EXTRA}" if NIGHT_EXTRA != 1.0 else ""))
-        cache = OUT_DIR / f"anchor_{anchor}_{'all' if anchor_train_all else 'excl_core'}_{tag}.npz"
+        excl = None if anchor_train_all else (HOLDOUT or bbox)
+        held = "all" if excl is None else "excl_core" if HOLDOUT is None else "excl_" + "_".join(f"{v:g}" for v in HOLDOUT)
+        cache = OUT_DIR / f"anchor_{anchor}_{held}_{tag}.npz"
         if cache.exists():
             A = dict(np.load(cache))
         else:
             ref = D if weekday == 2 else dict(residents=demand.residents(bbox, False),
                                                commuters=demand.commuters(bbox, False), visitors=demand.visitors(bbox, 2))
-            A = anchor_multipliers(S, ref, exclude_core=not anchor_train_all, mode=anchor)
+            A = anchor_multipliers(S, ref, exclude_bbox=excl, mode=anchor)
             np.savez(cache, **A)
         D = apply_anchor(D, A, weekend)
         say(f"  anchored: resident cars on street {len(D['residents']['xy']):,}; multiplier median {np.median(A['m']):.2f},"

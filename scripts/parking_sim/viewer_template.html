@@ -131,14 +131,14 @@ td.n { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-
       <section class="card" aria-labelledby="valTitle">
         <h2 class="eyebrow" id="valTitle">How the simulator checks out (K-town core)</h2>
         <div style="overflow-x:auto">
-        <table>
+        <table id="valTable">
           <thead><tr><th>Check (held-out data)</th><th>Sim</th><th>Benchmark</th></tr></thead>
           <tbody>
-            <tr><td>Street-cleaning tickets per route area, 38 areas</td><td class="n">ρ 0.85</td><td class="n">—</td></tr>
-            <tr><td>Cars left at the sweep vs tickets per sweep</td><td class="n">35 vs 36</td><td class="n">—</td></tr>
-            <tr><td>Evening permit-street tickets vs outsiders turned away, 6 PM–2 AM, 539 faces</td><td class="n">ρ 0.53</td><td class="n">0.09 capacity</td></tr>
-            <tr><td>Night double parking vs search effort, 1,010 cells</td><td class="n">ρ 0.35</td><td class="n">0.34 satellite</td></tr>
-            <tr><td>Midday cars, 2010 aerial, 701 cells (Wed / Sat)</td><td class="n">ρ 0.13 / 0.34</td><td class="n">0.39 satellite</td></tr>
+            <tr><td>Street-cleaning tickets per route area, 38 areas</td><td class="n">ρ 0.84–0.86</td><td class="n">—</td></tr>
+            <tr><td>Cars left at the sweep vs tickets per sweep</td><td class="n">32 vs 36</td><td class="n">—</td></tr>
+            <tr><td>Evening permit-street tickets vs outsiders turned away, 6 PM–2 AM, 539 faces</td><td class="n">ρ 0.49–0.52</td><td class="n">0.09 capacity</td></tr>
+            <tr><td>Night double parking vs search effort, 1,000 cells</td><td class="n">ρ 0.33–0.36</td><td class="n">0.34 satellite</td></tr>
+            <tr><td>Midday cars, 2010 aerial (a Monday, 12–2 PM), 701 cells</td><td class="n">ρ 0.22–0.27</td><td class="n">0.39 satellite</td></tr>
             <tr><td>Capacity vs meter count, 137 metered faces</td><td class="n">±5.2 spaces</td><td class="n">±10.5 geometry</td></tr>
           </tbody>
         </table>
@@ -147,7 +147,8 @@ td.n { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-
           <li>Capacity: curb length less corner setbacks, minus driveways, hydrants, red curb and bus zones found in 2023–26 tickets.</li>
           <li>Demand: residents (parcels and census commute data, anchored to satellite car counts), commuters (LODES jobs), visitors (Google busyness ÷ dwell time, three times heavier after 5 PM).</li>
           <li>Rules: posted street cleaning, permit-district hours read from tickets, meter tow-away windows, no-stopping and loading-zone hours from tickets.</li>
-          <li>Known gaps: 3rd St to Beverly is not modeled yet; evenings rest on ticket proxies; Wednesday middays match the 2010 aerial poorly (it is most likely a Saturday photo).</li>
+          <li id="valNote" hidden></li>
+          <li>Known gaps: 3rd St to Beverly is not modeled yet; evenings rest on ticket proxies; weekday middays trail the satellite estimator; nights here are nearly full, so block-to-block differences mostly come from capacity.</li>
         </ul>
       </section>
     </aside>
@@ -183,6 +184,16 @@ td.n { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-
 
   if (D.title) document.getElementById('title').textContent = D.title;
   if (D.areaText) document.getElementById('areaText').textContent = D.areaText;
+  if (D.validation) {   // region pages: one result column per validated area
+    const V = D.validation, T = document.getElementById('valTable');
+    document.getElementById('valTitle').textContent = V.title;
+    const row = (cells, tag) => { const tr = document.createElement('tr');
+      cells.forEach((c, i) => { const td = document.createElement(tag); td.textContent = c; if (i && tag === 'td') td.className = 'n'; tr.appendChild(td); });
+      return tr; };
+    T.tHead.replaceChildren(row(V.columns, 'th'));
+    T.tBodies[0].replaceChildren(...V.rows.map(r => row(r, 'td')));
+    if (V.note) { const li = document.getElementById('valNote'); li.textContent = V.note; li.hidden = false; }
+  }
   document.getElementById('fFaces').textContent = n.toLocaleString();
   document.getElementById('fSpaces').textContent = D.spaces.toLocaleString();
 

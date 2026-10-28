@@ -21,6 +21,20 @@ from common import M_LAT, M_LON, xy  # noqa: E402
 from supply import OUT_DIR  # noqa: E402
 
 CLASS_NAMES = ["residential", "unclassified", "living street", "tertiary", "secondary", "primary"]
+# Region pages (PARKSIM_VAL_TABLE=region): held-out results per area, ranges across 3 seeds (README, 2026-10-28)
+REGION_VALIDATION = dict(
+    title="How the simulator checks out (each area held out)",
+    columns=["Check (held-out data)", "K-town core", "Mid-City–Fairfax", "Koreatown–Westlake", "South LA"],
+    rows=[["Street-cleaning tickets per route area, ρ", "0.84–0.86", "0.89–0.90", "0.55–0.58", "0.78–0.81"],
+          ["Cars left at the sweep vs tickets per sweep", "32 vs 36", "34–39 vs 32", "30–33 vs 38", "43–47 vs 38"],
+          ["Evening permit-street tickets vs outsiders turned away, ρ", "0.49–0.52", "0.43–0.44", "0.71–0.73", "0.07–0.08"],
+          ["Night double parking vs occupancy, ρ", "0.30–0.31", "0.25–0.26", "0.24–0.25", "0.51–0.53"],
+          ["Same, beyond what capacity alone explains", "0.08–0.10", "0.18–0.19", "0.21–0.22", "0.31–0.33"],
+          ["Midday cars, 2010 aerial (a Monday, 12–2 PM), ρ", "0.22–0.27", "0.21–0.29", "0.14–0.18", "0.35–0.40"],
+          ["Satellite estimator alone, same cells", "0.39", "0.33", "0.41", "0.47"]],
+    note="Each area's satellite anchor is trained without that area. In the simulation, the suggested loops get drivers to the door "
+         "in 4.7 min on average vs 8.6 min for typical circling (1,200 trips across the region). South LA's permit "
+         "streets are not reproduced yet: strip-mall lots are missing from the data.")
 
 
 def main():
@@ -61,7 +75,8 @@ def main():
                 pfree=base64.b64encode(gzip.compress(pf.tobytes(), 9)).decode(),
                 rule=base64.b64encode(gzip.compress(rh.tobytes(), 9)).decode(),
                 hardShare=share.tolist(), medianFree=med, spaces=int(cap.sum()), faces=n,
-                title=os.environ.get("PARKSIM_TITLE"), areaText=os.environ.get("PARKSIM_AREA_TEXT"))
+                title=os.environ.get("PARKSIM_TITLE"), areaText=os.environ.get("PARKSIM_AREA_TEXT"),
+                validation=REGION_VALIDATION if os.environ.get("PARKSIM_VAL_TABLE") == "region" else None)
     page = (HERE / "viewer_template.html").read_text().replace("__DATA__", json.dumps(data, separators=(",", ":")))
     if data["title"]:   # the tab / gallery name, not just the heading
         page = page.replace("<title>K-town Curb Contention</title>", f"<title>{html.escape(data['title'])}</title>", 1)

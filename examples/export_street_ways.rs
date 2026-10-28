@@ -15,8 +15,19 @@ use std::error::Error;
 use std::io::{BufWriter, Write};
 
 const HIGHWAYS: &[&str] = &[
-    "motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link", "secondary",
-    "secondary_link", "tertiary", "tertiary_link", "unclassified", "residential", "living_street",
+    "motorway",
+    "motorway_link",
+    "trunk",
+    "trunk_link",
+    "primary",
+    "primary_link",
+    "secondary",
+    "secondary_link",
+    "tertiary",
+    "tertiary_link",
+    "unclassified",
+    "residential",
+    "living_street",
 ];
 const NODE_MARGIN: f64 = 0.01;
 
@@ -44,11 +55,18 @@ struct Output {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let pbf = std::env::args().nth(1).ok_or("usage: export_street_ways <path.osm.pbf>")?;
-    let b: Vec<f64> = std::env::var("BOUNDS")?.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+    let pbf = std::env::args()
+        .nth(1)
+        .ok_or("usage: export_street_ways <path.osm.pbf>")?;
+    let b: Vec<f64> = std::env::var("BOUNDS")?
+        .split(',')
+        .map(|s| s.trim().parse())
+        .collect::<Result<_, _>>()?;
     let (s, w, n, e) = (b[0], b[1], b[2], b[3]);
-    let output = std::env::var("OUTPUT").unwrap_or_else(|_| "data/parking_sim/osm_ways.json".into());
-    let inside = |lat: f64, lon: f64, m: f64| lat >= s - m && lat <= n + m && lon >= w - m && lon <= e + m;
+    let output =
+        std::env::var("OUTPUT").unwrap_or_else(|_| "data/parking_sim/osm_ways.json".into());
+    let inside =
+        |lat: f64, lon: f64, m: f64| lat >= s - m && lat <= n + m && lon >= w - m && lon <= e + m;
 
     let mut coords: HashMap<i64, (f64, f64)> = HashMap::new();
     let mut ways = Vec::new();
@@ -67,15 +85,36 @@ fn main() -> Result<(), Box<dyn Error>> {
         Element::Way(way) => {
             if way.tags().any(|(k, v)| k == "amenity" && v == "parking") {
                 // parking lot outline -> centroid of its nodes inside the box
-                let pts: Vec<(f64, f64)> = way.refs().filter_map(|id| coords.get(&id).copied()).collect();
+                let pts: Vec<(f64, f64)> = way
+                    .refs()
+                    .filter_map(|id| coords.get(&id).copied())
+                    .collect();
                 if !pts.is_empty() {
                     let (la, lo) = pts.iter().fold((0.0, 0.0), |a, p| (a.0 + p.0, a.1 + p.1));
                     let (la, lo) = (la / pts.len() as f64, lo / pts.len() as f64);
                     if inside(la, lo, 0.0) {
-                        let tags = way.tags()
-                            .filter(|(k, _)| ["name", "access", "fee", "parking", "capacity", "operator", "opening_hours"].contains(k))
-                            .map(|(k, v)| (k.to_string(), v.to_string())).collect();
-                        parking.push(ParkingLot { id: way.id(), tags, lat: la, lon: lo });
+                        let tags = way
+                            .tags()
+                            .filter(|(k, _)| {
+                                [
+                                    "name",
+                                    "access",
+                                    "fee",
+                                    "parking",
+                                    "capacity",
+                                    "operator",
+                                    "opening_hours",
+                                ]
+                                .contains(k)
+                            })
+                            .map(|(k, v)| (k.to_string(), v.to_string()))
+                            .collect();
+                        parking.push(ParkingLot {
+                            id: way.id(),
+                            tags,
+                            lat: la,
+                            lon: lo,
+                        });
                     }
                 }
                 return;
@@ -86,17 +125,29 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if k == "highway" {
                     highway = Some(v.to_string());
                 }
-                if k == "oneway" || k == "name" || k == "junction" || k == "lanes" || k.starts_with("parking:") {
+                if k == "oneway"
+                    || k == "name"
+                    || k == "junction"
+                    || k == "lanes"
+                    || k.starts_with("parking:")
+                {
                     tags.insert(k.to_string(), v.to_string());
                 }
             }
-            let Some(hw) = highway.filter(|h| HIGHWAYS.contains(&h.as_str())) else { return };
+            let Some(hw) = highway.filter(|h| HIGHWAYS.contains(&h.as_str())) else {
+                return;
+            };
             let nodes: Vec<(i64, f64, f64)> = way
                 .refs()
                 .filter_map(|id| coords.get(&id).map(|&(la, lo)| (id, la, lo)))
                 .collect();
             if nodes.len() >= 2 && nodes.iter().any(|&(_, la, lo)| inside(la, lo, 0.0)) {
-                ways.push(Way { id: way.id(), highway: hw, tags, nodes });
+                ways.push(Way {
+                    id: way.id(),
+                    highway: hw,
+                    tags,
+                    nodes,
+                });
             }
         }
         _ => {}
@@ -107,11 +158,39 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let mut out = BufWriter::new(std::fs::File::create(&output)?);
     let n_parking = parking.len();
-    serde_json::to_writer(&mut out, &Output { bounds: [s, w, n, e], ways: ways.iter().map(|w| Way {
-        id: w.id, highway: w.highway.clone(), tags: w.tags.clone(), nodes: w.nodes.clone() }).collect(), parking })?;
+    serde_json::to_writer(
+        &mut out,
+        &Output {
+            bounds: [s, w, n, e],
+            ways: ways
+                .iter()
+                .map(|w| Way {
+                    id: w.id,
+                    highway: w.highway.clone(),
+                    tags: w.tags.clone(),
+                    nodes: w.nodes.clone(),
+                })
+                .collect(),
+            parking,
+        },
+    )?;
     out.flush()?;
-    let parking_tagged = ways.iter().filter(|w| w.tags.keys().any(|k| k.starts_with("parking:"))).count();
-    let oneway = ways.iter().filter(|w| w.tags.get("oneway").map_or(false, |v| v != "no")).count();
-    eprintln!("{} ways ({} one-way, {} with parking tags), {} parking lots, {} nodes kept -> {}", ways.len(), oneway, parking_tagged, n_parking, coords.len(), output);
+    let parking_tagged = ways
+        .iter()
+        .filter(|w| w.tags.keys().any(|k| k.starts_with("parking:")))
+        .count();
+    let oneway = ways
+        .iter()
+        .filter(|w| w.tags.get("oneway").map_or(false, |v| v != "no"))
+        .count();
+    eprintln!(
+        "{} ways ({} one-way, {} with parking tags), {} parking lots, {} nodes kept -> {}",
+        ways.len(),
+        oneway,
+        parking_tagged,
+        n_parking,
+        coords.len(),
+        output
+    );
     Ok(())
 }
