@@ -159,7 +159,10 @@ fn tiles_to_lane_json(tiles: &[TrafficTile], cv: &Canvas) -> (String, usize) {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let output = std::env::var("OUTPUT").unwrap_or_else(|_| "web/lanes.json".into());
-    if let Some(p) = Path::new(&output).parent().filter(|p| !p.as_os_str().is_empty()) {
+    if let Some(p) = Path::new(&output)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(p)?;
     }
 
@@ -185,7 +188,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             json.push_str(&lanes_json);
         }
-        println!("{} features → {} lanes (live, replicated to 24h)", n_feat, n_lanes);
+        println!(
+            "{} features → {} lanes (live, replicated to 24h)",
+            n_feat, n_lanes
+        );
     } else {
         println!("fetching typical Monday traffic for 24 hours...");
         for hour in 0..24u8 {
@@ -207,11 +213,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     std::fs::write(&output, &json)?;
     let size_kb = json.len() as f64 / 1024.0;
-    println!(
-        "\nwrote {} ({:.0} KB)",
-        output,
-        size_kb,
-    );
+    println!("\nwrote {} ({:.0} KB)", output, size_kb,);
     println!("\nnext: cd web && python3 -m http.server 8080");
     println!("then open http://localhost:8080");
     Ok(())

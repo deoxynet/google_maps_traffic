@@ -696,9 +696,15 @@ mod tests {
         let g = Graph::from_json(json).unwrap();
         assert_eq!(g.counted_nodes.len(), 1, "should have 1 counted node");
         assert_eq!(g.counted_nodes[0], 0);
-        assert!((g.node_volume[0] - 2843.0).abs() < 1.0, "vol should be 2843");
+        assert!(
+            (g.node_volume[0] - 2843.0).abs() < 1.0,
+            "vol should be 2843"
+        );
         assert!(g.node_turns[3] > 0.99, "WB_L should be ~0.9973");
-        assert!((g.hourly_volume[17] - 1.0).abs() < 0.01, "peak hour should be 1.0");
+        assert!(
+            (g.hourly_volume[17] - 1.0).abs() < 0.01,
+            "peak hour should be 1.0"
+        );
         assert!(g.total_counted_volume > 13_000_000.0);
     }
 

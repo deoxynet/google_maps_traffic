@@ -181,7 +181,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .count();
     let oneway = ways
         .iter()
-        .filter(|w| w.tags.get("oneway").map_or(false, |v| v != "no"))
+        .filter(|w| w.tags.get("oneway").is_some_and(|v| v != "no"))
         .count();
     eprintln!(
         "{} ways ({} one-way, {} with parking tags), {} parking lots, {} nodes kept -> {}",

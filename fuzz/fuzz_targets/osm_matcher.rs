@@ -250,7 +250,13 @@ fuzz_target!(|data: &[u8]| {
         assert!(m.score >= prev_score);
         prev_score = m.score;
 
-        let edge_key = (m.edge.way_id, m.edge.start_node_id, m.edge.end_node_id);
+        // one match per edge and travel direction: a two-way edge can carry each direction's congestion
+        let edge_key = (
+            m.edge.way_id,
+            m.edge.start_node_id,
+            m.edge.end_node_id,
+            m.direction,
+        );
         assert!(seen.insert(edge_key));
 
         assert!(m.edge.start.lat.is_finite());
