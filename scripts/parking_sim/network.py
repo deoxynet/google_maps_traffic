@@ -42,7 +42,8 @@ def oneway_of(tags, highway):
 
 
 def main():
-    S = np.load(OUT_DIR / "supply.npz")
+    # load every array once: indexing a lazy NpzFile inside a loop decompresses the whole array each time
+    S = dict(np.load(OUT_DIR / "supply.npz"))
     left = np.where(S["side"] == "L")[0]
     right_of = {S["edge"][f]: f for f in np.where(S["side"] == "R")[0]}
     ends = list(S["poly_start"][1:]) + [len(S["poly"])]
@@ -58,7 +59,7 @@ def main():
 
     blocks = []
     for f in left:
-        P = S["poly"][S["poly_start"][f]:ends[f]]
+        P = S["poly"][S["poly_start"][f]:ends[f]].copy()
         blocks.append(dict(block=int(S["edge"][f]), faceL=int(f), faceR=int(right_of.get(S["edge"][f], -1)),
                            u=nid(*P[0]), v=nid(*P[-1]), line=P, cls=int(S["cls"][f]), length=float(S["length_m"][f])))
     # OSM ways -> sample points with direction, way index

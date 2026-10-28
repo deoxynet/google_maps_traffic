@@ -61,7 +61,7 @@ W = {}
 
 
 def init_worker(env, bbox):
-    S = np.load(OUT_DIR / "supply.npz")
+    S = dict(np.load(OUT_DIR / "supply.npz"))   # load once; a lazy NpzFile re-decompresses on every index
     left = np.where(S["side"] == "L")[0]           # one face per block carries its centerline
     ends = list(S["poly_start"][1:]) + [len(S["poly"])]
     pts, dirs, owner = [], [], []
