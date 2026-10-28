@@ -250,8 +250,67 @@ def pooled_exclusion_share(curb_xy, cls, geom_m, excl_m, radius=500.0):
     return np.clip(share, 0, 0.9)
 
 
-def sweeping(faces, curb_ll):
-    """Per face: (weekday, slot) list and allowed weeks of the month, from posted LA routes."""
+def street_names(faces, with_oneway=False):
+    """OSM street name (and one-way flag) per face, from data/parking_sim/osm_ways.json, by position and direction."""
+    path = OUT_DIR / "osm_ways.json"
+    if not path.exists():
+        return ([""] * len(faces), [False] * len(faces)) if with_oneway else [""] * len(faces)
+    W = json.load(open(path))["ways"]
+    pts, dirs, names = [], [], []
+    for w in W:
+        ll = np.array([[nd[1], nd[2]] for nd in w["nodes"]])
+        m = xy(ll[:, 0], ll[:, 1])
+        for a, b in zip(m[:-1], m[1:]):
+            L = np.hypot(*(b - a))
+            if L < 1e-6:
+                continue
+            for t in np.linspace(0, 1, max(1, int(L // 4)), endpoint=False):
+                pts.append(a + (b - a) * t)
+                dirs.append(math.atan2(b[1] - a[1], b[0] - a[0]) % math.pi)
+                names.append((w["tags"].get("name", ""), w["tags"].get("oneway", "no") not in ("no", "") or w["tags"].get("junction") == "roundabout"))
+    tree, dirs = cKDTree(np.array(pts)), np.array(dirs)
+    out, ow = [], []
+    for f in faces:
+        j = tree.query_ball_point(f["mid"], 8.0)
+        th = math.atan2(f["dir"][1], f["dir"][0]) % math.pi
+        best = min(j, key=lambda k: abs((dirs[k] - th + math.pi / 2) % math.pi - math.pi / 2), default=None)
+        out.append(names[best][0] if best is not None else "")
+        ow.append(names[best][1] if best is not None else False)
+    return (out, ow) if with_oneway else out
+
+
+def median_faces(faces):
+    """Faces on the inner (median) side of a divided road: a one-way block with a parallel one-way block of the
+    same street within 25 m on that face's side. OSM draws divided boulevards as two one-way carriageways."""
+    names, oneway = street_names(faces, with_oneway=True)
+    pts, owner = [], []
+    for i, f in enumerate(faces):
+        if f["side"] == "L":  # one centerline per block
+            for p in f["center"]:
+                pts.append(p)
+                owner.append(i)
+    tree, owner = cKDTree(np.array(pts)), np.array(owner)
+    out = np.zeros(len(faces), bool)
+    for i, f in enumerate(faces):
+        if not oneway[i] or not names[i]:
+            continue
+        for k in tree.query_ball_point(f["mid"] + f["normal"] * 12.0, 14.0):
+            g = faces[owner[k]]
+            if g["edge"] == f["edge"] or names[owner[k]] != names[i] or not oneway[owner[k]]:
+                continue
+            if abs(abs(float(np.dot(g["dir"], f["dir"]))) - 1) < 0.06 and np.dot(pts[k] - f["mid"], f["normal"]) > 3:
+                out[i] = True
+                break
+    return out
+
+
+def sweeping(faces, curb_ll, samples=None):
+    """Per face: (weekday, slot) list and allowed weeks of the month, from posted LA routes.
+
+    Route pairs sweep the two sides of a street on different days, and the data doesn't say which side is which.
+    Sweep tickets do: pooled per (route, street, side of street), the day inferred from half the 2023+ tickets
+    matched the other half 84% of the time (convention: 50%). Groups with >= 20 tickets and >= 58% on one day use
+    it; the rest fall back to the convention (north/east side takes the earlier day)."""
     db = sqlite3.connect(f"file:{LA_PARKING_DB / 'street_sweeping.db'}?mode=ro", uri=True)
     R = db.execute("select route, start_time, end_time, sweep_days, week_1, week_2, week_3, week_4, is_weekly, geometry "
                    "from routes where city='la' and geometry is not null and start_time is not null").fetchall()
@@ -263,17 +322,40 @@ def sweeping(faces, curb_ll):
     tree = shapely.STRtree(polys)
     fi, gi = tree.query(shapely.points(curb_ll[:, 1], curb_ll[:, 0]), predicate="intersects")
     hm = lambda s: int(s[:2]) + int(s[3:5]) / 60
+    # learn each (route, street, side)'s day from where sweep tickets land
+    street = street_names(faces)
+    ne = []
+    for f in faces:
+        n = f["normal"]
+        ne.append(n[1] > 0 if abs(n[1]) >= abs(n[0]) else n[0] > 0)
+    tick_day = {}
+    if samples is not None:
+        pts, owner = samples
+        C = np.load(CURB_DIR / "citations_sweep_2023plus.npy")
+        d, j = cKDTree(pts).query(xy(C[:, 0], C[:, 1]), distance_upper_bound=10)
+        ok = np.isfinite(d)
+        face_route = {f: names[g] for f, g in zip(fi, gi)}
+        counts = defaultdict(lambda: np.zeros(7))
+        for f, wd in zip(owner[j[ok]], C[ok, 2].astype(int)):
+            if f in face_route:
+                counts[(face_route[f], street[f], ne[f])][wd] += 1
+        for key, c in counts.items():
+            days = sorted({d for r in groups[key[0]] for d in (json.loads(r[3]) or [])})
+            if len(days) == 2 and c[days].sum() >= 20 and c[days].max() / c[days].sum() >= 0.58:
+                tick_day[key] = days[int(np.argmax(c[days]))]
     sweep = {}
     for f, gidx in zip(fi, gi):
         rs = sorted(groups[names[gidx]], key=lambda r: (json.loads(r[3]) or [9])[0])
-        # The data does not say which side is swept on which day. Convention: faces whose outward normal points
-        # north or east take the earlier day of the pair.
-        n = faces[f]["normal"]
-        north_or_east = n[1] > 0 if abs(n[1]) >= abs(n[0]) else n[0] > 0
-        r = rs[0] if (north_or_east or len(rs) == 1) else rs[-1]
+        day = tick_day.get((names[gidx], street[f], ne[f]))
+        if day is not None:
+            r = next((r for r in rs if day in (json.loads(r[3]) or [])), rs[0])
+            source = "tickets"
+        else:
+            r = rs[0] if (ne[f] or len(rs) == 1) else rs[-1]   # convention
+            source = "convention" if len(rs) > 1 else "single route"
         weeks = [1, 2, 3, 4, 5] if r[8] else [i + 1 for i, fl in enumerate(r[4:8]) if fl]
         sweep[f] = dict(slots=[s for d in json.loads(r[3]) or [] for s in week_slots(d, hm(r[1]), hm(r[2]))],
-                        weeks=weeks, route=r[0])
+                        weeks=weeks, route=r[0], source=source)
     return sweep
 
 
@@ -353,7 +435,9 @@ def main():
     usable = np.array([USABLE[CLASSES[c]] for c in cls])
     share = pooled_exclusion_share(curb_xy, cls, geom * SPACE_M, tk["excl_m"])
     cap = geom * (1 - share) * usable
-    sw = sweeping(faces, curb_ll)
+    median = median_faces(faces)
+    cap[median] = 0.0
+    sw = sweeping(faces, curb_ll, samples)
     ppd = permit_districts(faces, samples)
     mt = meters(faces, samples)
     nopark = np.zeros((n, 7, SLOTS), bool)
@@ -385,9 +469,10 @@ def main():
             loading[f, wd, q] = sp
     core = (curb_ll[:, 0] >= bbox[0]) & (curb_ll[:, 0] <= bbox[1]) & (curb_ll[:, 1] >= bbox[2]) & (curb_ll[:, 1] <= bbox[3])
     sweep_route = np.array([sw[f]["route"] if f in sw else "" for f in range(n)])
+    sweep_source = np.array([sw[f]["source"] if f in sw else "" for f in range(n)])
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     poly_ll = [np.c_[f["center"][:, 1] / M_LAT, f["center"][:, 0] / M_LON].round(6) for f in faces]
-    np.savez_compressed(OUT_DIR / "supply.npz", bbox=np.array(bbox), core=core, sweep_route=sweep_route,
+    np.savez_compressed(OUT_DIR / "supply.npz", bbox=np.array(bbox), core=core, sweep_route=sweep_route, sweep_source=sweep_source,
                         edge=np.array([f["edge"] for f in faces]), side=np.array([f["side"] for f in faces]),
                         length_m=np.array([f["length_m"] for f in faces]), cls=cls, capacity=cap, capacity_geom=geom,
                         excl_m=tk["excl_m"], excl_clusters=tk["clusters"], night_double=tk["double_night"], day_double=tk["double_day"], xy=curb_xy, latlon=curb_ll,
@@ -401,6 +486,9 @@ def main():
     print(f"  core capacity {cap[c].sum():,.0f} spaces (geometric {geom[c].sum():,.0f}; pooled ticket exclusion share "
           f"median {np.median(share[c]):.0%})")
     print("  core by class: " + ", ".join(f"{k} {cap[c & (cls == i)].sum():,.0f}" for i, k in enumerate(CLASSES) if (c & (cls == i)).any()))
+    print(f"  median-side faces on divided roads set to 0: {int((median & core).sum())} in the core ({geom[median & core].sum() * usable[median & core].mean() if (median & core).any() else 0:,.0f} spaces removed)")
+    src = [v["source"] for v in sw.values()]
+    print(f"  sweeping side from tickets on {src.count('tickets')} faces, convention on {src.count('convention')}")
     print(f"  sweeping {len(sw)} faces; permit districts {len(ppd)}; meters {len(mt)}; ticket no-stop/no-park windows "
           f"{len(tk['nostop'])}; loading zones {len(tk['loading'])}")
 

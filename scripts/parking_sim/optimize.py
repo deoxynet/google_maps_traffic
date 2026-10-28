@@ -134,12 +134,42 @@ class Planner:
         d = abs((self.heading[e2] - self.heading[e1] + math.pi) % (2 * math.pi) - math.pi)
         return 3.0 if d < math.radians(40) else (12.0 if d < math.radians(140) else 25.0)
 
-    def optimize(self, start, terms, fallback, max_drive, beam=400):
-        """fallback: seconds to the best lot from each node (array) or a flat cost."""
+    def approach(self, origin_node, dest, slot, day, reach):
+        """Fastest path from the origin; returns (node, edge) where it first comes within `reach` m of the destination."""
+        tt = self.N["travel_s"][:, int(day >= 5), slot // 4].astype(float)
+        dist, prev = {origin_node: 0.0}, {}
+        pq = [(0.0, origin_node)]
+        target = int(cKDTree(self.node_xy).query(dest)[1])
+        while pq:
+            d, v = heapq.heappop(pq)
+            if d > dist.get(v, np.inf):
+                continue
+            if v == target:
+                break
+            for e in self.out[v]:
+                u = self.N["dst"][e]
+                if d + tt[e] < dist.get(u, np.inf):
+                    dist[u], prev[u] = d + tt[e], e
+                    heapq.heappush(pq, (dist[u], u))
+        if target not in dist:
+            return target, -1
+        path, v = [], target
+        while v != origin_node:
+            e = prev[v]
+            path.append(e)
+            v = self.N["src"][e]
+        path.reverse()
+        for e in path:  # first edge that ends within reach of the destination
+            if np.hypot(*(self.node_xy[self.N["dst"][e]] - dest)) <= reach:
+                return int(self.N["dst"][e]), e
+        return target, path[-1] if path else -1
+
+    def optimize(self, start, terms, fallback, max_drive, beam=400, last=-1):
+        """fallback: seconds to the best lot from each node (array) or a flat cost. last: edge we arrived on."""
         p, walk, tt = terms
         G = (lambda v: fallback[v]) if not np.isscalar(fallback) else (lambda v: fallback)
         # state: (J, E, S, T, node, last_edge, route)
-        frontier = [(G(start), 0.0, 1.0, 0.0, start, -1, ())]
+        frontier = [(G(start), 0.0, 1.0, 0.0, start, last, ())]
         best = (G(start), ())
         while frontier:
             nxt = {}
@@ -202,7 +232,16 @@ class Planner:
             if 1 - S >= 0.95:
                 break
         idx = pts[:max_points + 1]
-        ll = [self.lines[route[i]][len(self.lines[route[i]]) // 2] for i in idx]
+        # 70% along the block in the direction of travel: Google then drives the block the intended way, which
+        # decides which curb (right side on two-way streets) the driver can take
+        ll = []
+        for i in idx:
+            line = self.lines[route[i]]
+            m = xy(line[:, 0], line[:, 1])
+            seg = np.hypot(*np.diff(m, axis=0).T)
+            cum = np.r_[0, np.cumsum(seg)]
+            t = 0.7 * cum[-1]
+            ll.append((float(np.interp(t, cum, line[:, 0])), float(np.interp(t, cum, line[:, 1]))))
         return ll
 
     @staticmethod
@@ -222,20 +261,28 @@ def main():
     ap.add_argument("--walk", type=float, default=400, help="max walk to the destination, metres")
     ap.add_argument("--max-drive", type=float, default=600, help="longest search loop, seconds of driving")
     ap.add_argument("--stay", type=float, default=2.0, help="planned stay in hours (for lot prices)")
+    ap.add_argument("--origin", help="lat,lon the driver comes from; the search starts where that path nears the destination")
     args = ap.parse_args()
     lat, lon = map(float, args.dest.split(","))
     hh, mm = map(int, args.time.split(":"))
     day, slot = DAYS.index(args.day), (hh * 60 + mm) // 15
     pl = Planner()
     dest = xy(lat, lon)[0]
-    start = int(cKDTree(pl.node_xy).query(dest)[1])
-    plan(pl, dest, start, day, slot, args, lat, lon)
+    start, last = int(cKDTree(pl.node_xy).query(dest)[1]), -1
+    if args.origin:
+        o = xy(*map(float, args.origin.split(",")))[0]
+        start, last = pl.approach(int(cKDTree(pl.node_xy).query(o)[1]), dest, slot, day, args.walk)
+    args.last = last
+    Jo, Po = plan(pl, dest, start, day, slot, args, lat, lon, quiet=True)
     if args.walk < 800:
-        Jo, Po = plan(pl, dest, start, day, slot, args, lat, lon, quiet=True)
         args2 = argparse.Namespace(**{**vars(args), "walk": 800})
         J8, P8 = plan(pl, dest, start, day, slot, args2, lat, lon, quiet=True)
-        print(f"  with up to 800 m of walking: expected {J8 / 60:.1f} min, finds a space {P8:.0%}"
-              f" ({'worth it' if J8 < Jo - 30 else 'not worth it'})")
+        if J8 < Jo - 30:
+            print(f"(walking up to 800 m saves {(Jo - J8) / 60:.1f} min over the {args.walk:.0f} m limit; showing that plan)")
+            args = args2
+        else:
+            print(f"(walking up to 800 m would not help: {J8 / 60:.1f} min vs {Jo / 60:.1f})")
+    plan(pl, dest, start, day, slot, args, lat, lon)
 
 
 def lot_text(pl, i, dest, stay):
@@ -255,7 +302,7 @@ def lot_text(pl, i, dest, stay):
 def plan(pl, dest, start, day, slot, args, lat, lon, quiet=False):
     terms = pl.edge_terms(dest, day, slot, args.walk)
     G, which = pl.lot_costs(dest, day, slot, args.walk)
-    J, route = pl.optimize(start, terms, G, args.max_drive)
+    J, route = pl.optimize(start, terms, G, args.max_drive, last=getattr(args, "last", -1))
     Jo, Po, To = pl.evaluate(route, terms, G, start)
     if quiet:
         return Jo, Po
