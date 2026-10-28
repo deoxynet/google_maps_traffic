@@ -9,7 +9,6 @@ limit, else drive on; at the end of the loop they go to the best lot. Same for t
 Usage: python3 scripts/parking_sim/evaluate_routes.py [--dests 30] [--probes 6]
 """
 import argparse
-import math
 import os
 import sqlite3
 import sys

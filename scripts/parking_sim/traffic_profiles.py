@@ -26,7 +26,7 @@ from scipy.spatial import cKDTree
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[0] / "curb"))
-from common import BASE_DIR, M_LAT, M_LON, xy  # noqa: E402
+from common import BASE_DIR, xy  # noqa: E402
 from supply import OUT_DIR  # noqa: E402
 
 BUCKET = "gmaps-traffic"

@@ -29,7 +29,7 @@ from anchor import midday_targets  # noqa: E402
 from supply import OUT_DIR, SLOTS  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "curb"))
-from common import BASE_DIR, CELL_M  # noqa: E402
+from common import CELL_M  # noqa: E402
 
 WALK_R = {"resident": 300.0, "resident_far": 800.0, "commuter": 500.0, "visitor": 400.0}
 SEC_PER_CHECK = 25.0          # driving time to look at one more block face
@@ -195,6 +195,9 @@ class Sim:
 SEED = int(os.environ.get("PARKSIM_SEED", 1))
 RNG = np.random.default_rng(SEED)
 NIGHT_SCALE = float(os.environ.get("PARKSIM_NIGHT_SCALE", 1.3))  # CAL: overnight resident stock multiplier (night anchor)
+# Night anchor, cells with no residential parcels (commercial strips): share of the satellite stock treated as
+# overnight residents. Midday cars there are mostly visitors and workers who leave at night.
+NIGHT_EXTRA = float(os.environ.get("PARKSIM_NIGHT_EXTRA", 1.0))
 MIDDAY = slice(44, 52)  # 11:00-13:00
 ANCHOR_PASSES = 0       # fixed-point refinement diverges: overflow moves cars between cells
 
@@ -229,7 +232,7 @@ def anchor_multipliers(S, D, exclude_core, mode="midday"):
         k = NIGHT_SCALE * max(T.sum() - O.sum(), 0) / max(present * T.sum(), 1e-9)
         H = k * T                                                  # resident cars that live in each cell
         m = np.where(homes0 > 0.5, np.clip(H / np.maximum(homes0, 1e-9), 0.1, 12.0), 1.0)
-        extra = np.where(homes0 <= 0.5, H, 0.0)
+        extra = np.where(homes0 <= 0.5, H * NIGHT_EXTRA, 0.0)
     else:
         m = np.where(R > 0.5, np.clip((T - O) / np.maximum(R, 1e-9), 0.25, 8.0), 1.0)
         extra = np.where(R <= 0.5, np.maximum(T - O, 0) / max(present, 0.1), 0.0)
@@ -292,7 +295,7 @@ def prepare_day(S, weekday, anchor="night", anchor_train_all=False, verbose=True
     D["residents"]["away"] = [a for a, k in zip(D["residents"]["away"], keep) if k]
     if anchor != "none":
         tag = (f"cs{demand.ONSTREET_COMMUTE_SHARE}_cc{demand.COMMUTER_CURB}_vs{demand.VISITOR_SCALE}"
-               f"_ve{demand.VISITOR_EVENING}_ns{NIGHT_SCALE}")
+               f"_ve{demand.VISITOR_EVENING}_ns{NIGHT_SCALE}" + (f"_ne{NIGHT_EXTRA}" if NIGHT_EXTRA != 1.0 else ""))
         cache = OUT_DIR / f"anchor_{anchor}_{'all' if anchor_train_all else 'excl_core'}_{tag}.npz"
         if cache.exists():
             A = dict(np.load(cache))

@@ -7,7 +7,6 @@ once lifted. Do not switch clients to dodge a block; slow down or use the Waybac
 """
 import sys, math, time, csv, urllib.request, urllib.error
 from common import TILES_DIR
-from pathlib import Path
 rel=sys.argv[1]; la0,la1,lo0,lo1=map(float,sys.argv[2].split(',')); gap=float(sys.argv[3]) if len(sys.argv)>3 else 1.0
 Z=19; N=2**Z
 tx=lambda lon: int((lon+180)/360*N)

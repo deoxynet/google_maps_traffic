@@ -11,18 +11,16 @@ resident cars that commute 0.5. Override with PARKSIM_* env vars.
   visitors   places' busyness / dwell -> arrivals; places beside a lot (or big-box categories) mostly park off-street
 """
 import csv
-import json
 import os
 import sqlite3
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 from scipy.spatial import cKDTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "curb"))
-from common import BASE_DIR, BUILDINGS_DB, LA_PARKING_DB, LODES_DIR, M_LAT, M_LON, lodes_blocks, place_profiles, xy  # noqa: E402
+from common import BUILDINGS_DB, LA_PARKING_DB, LODES_DIR, M_LAT, M_LON, lodes_blocks, place_profiles, xy  # noqa: E402
 
 # --- residents (CAL) ---
 UNITS = {"Single": 1, "Two Units": 2, "Three Units (Any Combination)": 3, "Four Units (Any Combination)": 4}
