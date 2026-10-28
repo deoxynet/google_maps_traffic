@@ -7,6 +7,8 @@ faces are stable, and writes data/parking_sim/contention_week.json.gz:
          side L/R is relative to the line's direction; lat/lon is the middle of the face's parking lane)
   p_free[day][face] -> 96 ints, percent of minutes in each 15-min slot with a free legal space for a visitor
   occ[day][face]    -> 96 ints, mean percent of capacity occupied
+  capture[day][face] -> 96 ints, percent of searchers who checked the face and got a space there (-1: fewer than 3
+                        checks in that slot); this is the per-pass chance the search optimizer needs
 Usage: python3 scripts/parking_sim/export.py [--week 2] [--anchor-train-all]
 """
 import argparse
@@ -42,7 +44,7 @@ def main():
                   line=S["poly"][S["poly_start"][i]:ends[i]].tolist())
              for i in keep]
     out = dict(faces=faces, slot_minutes=15, days=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], week_of_month=args.week,
-               p_free=[], occ=[])
+               p_free=[], occ=[], capture=[])
     tmp = Path(tempfile.mkdtemp(prefix="parksim_"))
     base = [sys.executable, str(HERE / "sim.py"), "--week", str(args.week), "--anchor", args.anchor]
     if args.anchor_train_all:
@@ -63,6 +65,10 @@ def main():
         occ = np.mean([r["occ"][keep] for r in R], axis=0)
         out["p_free"].append(np.rint(p_free * 100).astype(int).tolist())
         out["occ"].append(np.rint(np.clip(occ / cap, 0, 1) * 100).astype(int).tolist())
+        checks = np.sum([r["checks"][keep] for r in R], axis=0)
+        hits = np.sum([r["hits"][keep] for r in R], axis=0)
+        cap_rate = np.where(checks >= 3, np.rint(100 * hits / np.maximum(checks, 1)), -1).astype(int)
+        out["capture"].append(cap_rate.tolist())
     dest = OUT_DIR / "contention_week.json.gz"
     with gzip.open(dest, "wt") as f:
         json.dump(out, f, separators=(",", ":"))

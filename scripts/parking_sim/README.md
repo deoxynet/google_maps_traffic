@@ -11,7 +11,32 @@ python3 scripts/parking_sim/export.py --anchor-train-all   # a week, 4 seeds per
 python3 scripts/parking_sim/build_viewer.py        # map viewer -> data/parking_sim/viewer.html
 python3 scripts/parking_sim/traffic_profiles.py    # Google traffic history (R2, z15) onto blocks -> traffic_z15.npz
 python3 scripts/parking_sim/traffic_signal.py      # does traffic show parking search? (2026-10-27: no, see below)
+BOUNDS=34.029,-118.351,34.0785,-118.274 cargo run --release --example export_street_ways --features osm -- socal.osm.pbf
+python3 scripts/parking_sim/network.py             # directed driving graph (one-way, names, curb faces per direction)
+python3 scripts/parking_sim/optimize.py --dest 34.0560,-118.3090 --day Sat --time 13:00   # search loop + Maps links
 ```
+
+## Search-path optimizer (`optimize.py`)
+- **What it finds:** the driving loop with the lowest expected time from arrival to the door.
+- **Per block:**
+  - A directed block offers the curb a driver can legally take: the right side on two-way streets, both sides on one-way streets.
+  - Its chance of a space is the simulator's **capture rate**: the share of simulated searchers who checked that face in that 15-minute slot and got a space.
+  - Share-of-time-free is the wrong measure. In saturated K-town evenings it is 0 everywhere, even though freed spaces do get taken.
+  - A second pass over a block on the same loop counts at 35%.
+- **Cost of the search:**
+  - Parking costs the drive so far, plus 30 s to park, plus the walk at 1.3 m/s.
+  - Ending the loop without a space costs a fallback, 15 min by default, meaning a garage.
+- **Search method:** beam search over loops of up to 10 minutes of driving.
+- **Baseline:** a driver who keeps taking the next block closest to the destination.
+- **Output:** Google Maps links with up to 9 waypoints (desktop) or 3 (mobile), placed at the middle of each block after a turn. The origin is omitted, so the route starts at the user's location.
+- **Examples (2026-10-27):**
+  - Western & 8th, Sat 1pm: a 56% loop, 12.2 min expected vs 19.7 for typical circling; walking up to 800 m brings it to 7.8 min.
+  - Country Club Park, Wed 7pm: 3.8 min vs 18.4. Circling the nearest blocks hits permit-only streets.
+  - Western & 6th, Fri 8pm: about 5% within 400 m, so the advice is a lot. That's the simulator's view; evening absolute levels are uncalibrated.
+- **Known gaps:**
+  - The fallback is a flat cost rather than real nearby lots.
+  - A waypoint fixes the block but not the travel direction, which matters for right-side parking.
+  - The loop starts at the intersection nearest the destination, not along the driver's approach.
 
 ## Model
 - **Supply** (`supply.py`)
@@ -35,6 +60,7 @@ python3 scripts/parking_sim/traffic_signal.py      # does traffic show parking s
   - 1-minute steps.
   - A driver checks faces outward from the destination: residents within 300 m, then 800 m, and keep circling; visitors within 400 m; commuters within 500 m.
   - When a sweep window opens, 94% of the cars on that face move.
+  - Residents still unparked after the 800 m search plus one 15-minute retry park "elsewhere" until their next trip: a garage, farther away, or illegally. Without this, about 6.5k phantom circlers at 3am swamped every freed space.
   - It logs search effort and failures, plus non-residents turned away by permit rules.
 - **Anchor** (`anchor.py`, `--anchor night`, the default)
   - The satellite-trained estimator (`scripts/curb/occupancy_model.py`) sets where resident cars live overnight.
@@ -59,11 +85,11 @@ These were chosen with a sweep over the commute share and night scale. Pushing t
 
 | Check (held-out) | Simulator | Benchmark |
 |---|---|---|
-| Street-sweeping tickets per route area (38 areas) | ρ 0.88; 38 cars left vs 36 tickets per event | — |
+| Street-sweeping tickets per route area (38 areas) | ρ 0.88; 32.5 cars left vs 36 tickets per event | — |
 | Evening (6pm–2am) permit-district tickets vs simulated outsiders turned away (539 faces) | ρ 0.54 (0.45 without the evening multiplier) | capacity alone 0.09 |
 | All-hours permit-district tickets vs outsiders turned away | ρ 0.32 | capacity alone 0.09 |
-| Night double-parking tickets vs search effort (1,014 cells) | ρ 0.34 | satellite estimator 0.34, capacity −0.38 |
-| Midday cars, 2010 aerial (701 cells), Wed / Sat | ρ 0.30 / 0.39 | satellite estimator 0.40 |
+| Night double-parking tickets vs search effort (1,014 cells) | ρ 0.35 | satellite estimator 0.34, capacity −0.38 |
+| Midday cars, 2010 aerial (701 cells), Wed / Sat | ρ 0.26 / 0.35 | satellite estimator 0.40 |
 | Capacity vs meter count (137 metered faces) | mean error 5.2 spaces | geometry alone 10.5 |
 
 Two validation choices to keep:

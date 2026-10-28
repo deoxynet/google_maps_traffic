@@ -33,6 +33,9 @@ from common import BASE_DIR, CELL_M  # noqa: E402
 WALK_R = {"resident": 300.0, "resident_far": 800.0, "commuter": 500.0, "visitor": 400.0}
 SEC_PER_CHECK = 25.0          # driving time to look at one more block face
 SWEEP_COMPLIANCE = 0.94       # CAL: cars moved before the sweeper; matches citations per event (incl. catch rate)
+# Residents who still find nothing after this many 15-minute retries park "elsewhere" (garage, lot, farther, or
+# illegally) until their next trip, instead of circling forever and swamping every freed space.
+RES_RETRIES = int(os.environ.get("PARKSIM_RES_RETRIES", 1))
 
 
 class Sim:
@@ -58,6 +61,7 @@ class Sim:
         self.cited = np.zeros(self.n)
         self.permit_blocked = np.zeros((self.n, SLOTS))
         self.unparked_res = np.zeros(SLOTS)
+        self.overflow = []  # (slot, x, y) of residents who gave up on the curb
 
     def candidates(self, p, r):
         key = (round(p[0], 0), round(p[1], 0), r)
@@ -102,6 +106,7 @@ class Sim:
         events = []  # (minute, order, type, payload)
         nres = len(res["xy"])
         car_face = np.full(nres, -1)
+        retries = np.zeros(nres, int)
         car_home = res["xy"]
         # residents start the day parked near home, unless away overnight
         for i in RNG.permutation(nres):
@@ -120,6 +125,11 @@ class Sim:
                 self._sweep_start(slot, car_face, car_home)
                 for i in np.where(car_face == -3)[0]:  # still circling
                     car_face[i] = self.park_resident(car_home[i], slot)
+                    if car_face[i] == -3:
+                        retries[i] += 1
+                        if retries[i] >= RES_RETRIES:
+                            car_face[i] = -4  # parked elsewhere until the next trip
+                            self.overflow.append((slot, *car_home[i]))
                 self.unparked_res[slot] = (car_face == -3).sum()
             while departures and departures[0][0] <= minute:
                 _, f = heapq.heappop(departures)
@@ -133,6 +143,7 @@ class Sim:
                         car_face[i] = -2  # away
                 elif typ == "res_return":
                     if car_face[i] == -2:
+                        retries[i] = 0
                         car_face[i] = self.park_resident(car_home[i], slot)
                 elif typ == "com_arrive":
                     f = self.park(com["xy"][i], "commuter", slot)
@@ -284,7 +295,8 @@ def main():
     log = np.array([(kinds[k], s, ok, n, d, x, y) for k, s, ok, n, d, x, y in sim.search_log])  # .., destination x/y
     dest = Path(os.environ.get("PARKSIM_OUT", OUT_DIR)) / f"contention_wd{args.weekday}_w{args.week}.npz"
     np.savez_compressed(dest, occ=occ, p_free=p_free, checks=sim.checks, hits=sim.hits, capacity=sim.cap,
-                        vis_ok=sim.vis_ok, cited=sim.cited, permit_blocked=sim.permit_blocked, search_log=log)
+                        vis_ok=sim.vis_ok, cited=sim.cited, permit_blocked=sim.permit_blocked,
+                        overflow=np.array(sim.overflow).reshape(-1, 3), search_log=log)
     curb = (sim.cap > 0) & S["core"]
     print(f"simulated weekday {args.weekday} week {args.week} in {time.time() - t:.0f}s -> {dest}")
     for hh in (3, 8, 11, 14, 18, 21):
@@ -295,7 +307,8 @@ def main():
         fail = 1 - v[:, 2].mean() if len(v) else float("nan")
         print(f"  {hh:02d}:00  occupancy {o:.0%}  faces with a free legal space {pf:.0%}  visitor searches failing {fail:.0%}")
     print(f"  sweep: {sim.cited.sum():.0f} cars left on swept faces (would be cited)")
-    print(f"  residents still circling for a space: 03:00 {sim.unparked_res[12]:.0f}, 21:00 {sim.unparked_res[84]:.0f}")
+    print(f"  residents still circling for a space: 03:00 {sim.unparked_res[12]:.0f}, 21:00 {sim.unparked_res[84]:.0f};"
+          f" gave up on the curb today: {len(sim.overflow):,}")
 
 
 if __name__ == "__main__":
