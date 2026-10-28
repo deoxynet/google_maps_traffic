@@ -132,16 +132,25 @@ aside { display: grid; gap: 12px; min-width: 0; }
 
 <script id="data" type="application/json">__DATA__</script>
 <script>
-(() => {
+(async () => {
   const D = JSON.parse(document.getElementById('data').textContent);
+  // binary arrays arrive gzipped + base64; inflate them all before starting
+  const raw = {};
+  async function inflate(key, s) {
+    const bytes = Uint8Array.from(atob(s), c => c.charCodeAt(0));
+    const out = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    raw[key] = out;
+  }
+  await Promise.all([['nodes', D.nodes], ['src', D.edges.src], ['dst', D.edges.dst], ['block', D.edges.block], ['fwd', D.edges.fwd],
+    ['face_r', D.edges.face_r], ['face_l', D.edges.face_l], ['tt', D.edges.tt], ['fxy', D.faces.xy], ['fp', D.faces.p], ['flim', D.faces.lim]]
+    .map(([k, s]) => inflate(k, s)));
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const PARK_S = 30, WALK_MPS = 1.3, DETOUR = 1.25, REVISIT = 0.35, LOT_ENTRY_S = 120, UNVERIFIED_S = 300, FAR_S = 900;
-  const dec = (s, T) => { const u = Uint8Array.from(atob(s), c => c.charCodeAt(0)); return new T(u.buffer); };
-  const NODES = dec(D.nodes, Float32Array), nN = NODES.length / 2;
-  const SRC = dec(D.edges.src, Uint16Array), DST = dec(D.edges.dst, Uint16Array), BLK = dec(D.edges.block, Uint16Array);
-  const FWD = dec(D.edges.fwd, Uint8Array), FR = dec(D.edges.face_r, Int16Array), FL = dec(D.edges.face_l, Int16Array);
-  const TT = dec(D.edges.tt, Uint8Array), NAME = D.edges.name, nE = SRC.length;
-  const FXY = dec(D.faces.xy, Float32Array), FP = dec(D.faces.p, Uint8Array), FLIM = dec(D.faces.lim, Uint8Array);
+  const NODES = new Float32Array(raw.nodes), nN = NODES.length / 2;
+  const SRC = new Uint32Array(raw.src), DST = new Uint32Array(raw.dst), BLK = new Uint32Array(raw.block);
+  const FWD = new Uint8Array(raw.fwd), FR = new Int32Array(raw.face_r), FL = new Int32Array(raw.face_l);
+  const TT = new Uint8Array(raw.tt), NAME = D.edges.name, nE = SRC.length;
+  const FXY = new Float32Array(raw.fxy), FP = new Uint8Array(raw.fp), FLIM = new Uint8Array(raw.flim);
   const BL = D.blocks.map(a => { const p = []; for (let i = 0; i < a.length; i += 2) p.push([a[i], a[i + 1]]); return p; });
   const LOTS = D.lots;
   const [LAT0, LON0] = D.origin, MLAT = D.m_lat, MLON = D.m_lon;

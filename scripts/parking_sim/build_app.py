@@ -21,7 +21,9 @@ from common import M_LAT, M_LON  # noqa: E402
 from supply import OUT_DIR  # noqa: E402
 
 P_SCALE = float(os.environ.get("PARKSIM_P_SCALE", 0.25))
-b64 = lambda a: base64.b64encode(np.ascontiguousarray(a).tobytes()).decode()
+# binary arrays are gzipped before base64 (mostly zeros: several times smaller); the page inflates them with
+# DecompressionStream, so a whole-region build stays under the 16 MB page limit
+b64 = lambda a: base64.b64encode(gzip.compress(np.ascontiguousarray(a).tobytes(), 9)).decode()
 
 
 def main():
@@ -64,10 +66,10 @@ def main():
     data = dict(
         origin=[lat0, lon0], m_lat=M_LAT, m_lon=M_LON,
         nodes=b64(np.c_[nx, ny].astype(np.float32)),
-        edges=dict(src=b64(N["src"].astype(np.uint16)), dst=b64(N["dst"].astype(np.uint16)),
-                   block=b64(np.array([bpos[int(b)] for b in N["block"]], np.uint16)),
+        edges=dict(src=b64(N["src"].astype(np.uint32)), dst=b64(N["dst"].astype(np.uint32)),
+                   block=b64(np.array([bpos[int(b)] for b in N["block"]], np.uint32)),
                    fwd=b64(N["forward"].astype(np.uint8)),
-                   face_r=b64(N["face_right"].astype(np.int16)), face_l=b64(N["face_left"].astype(np.int16)),
+                   face_r=b64(N["face_right"].astype(np.int32)), face_l=b64(N["face_left"].astype(np.int32)),
                    tt=b64(tt), name=[str(x) for x in N["name"]]),
         blocks=block_lines,
         faces=dict(xy=b64(np.c_[fx, fy].astype(np.float32)), p=b64(pf), cap=b64(np.rint(S["capacity"]).astype(np.uint8)),
