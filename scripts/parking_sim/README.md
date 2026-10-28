@@ -9,6 +9,8 @@ python3 scripts/parking_sim/sim.py --weekday 2     # one simulated day (Mon=0) -
 python3 scripts/parking_sim/validate.py            # 4 independent checks; the satellite anchor leaves the core out
 python3 scripts/parking_sim/export.py --anchor-train-all   # a week, 4 seeds per day -> contention_week.json.gz
 python3 scripts/parking_sim/build_viewer.py        # map viewer -> data/parking_sim/viewer.html
+python3 scripts/parking_sim/traffic_profiles.py    # Google traffic history (R2, z15) onto blocks -> traffic_z15.npz
+python3 scripts/parking_sim/traffic_signal.py      # does traffic show parking search? (2026-10-27: no, see below)
 ```
 
 ## Model
@@ -67,6 +69,13 @@ These were chosen with a sweep over the commute share and night scale. Pushing t
 Two validation choices to keep:
 - The night check uses double parking only. Red-zone, hydrant, and driveway tickets also set capacity, so using them made the check circular: capacity correlated −0.68 with them.
 - The old satellite spot clusters in `web/parking_spots.json` sit a median 20 m from the curb (mostly lots and driveways), so they are not used for capacity.
+
+## Google traffic history
+1,057 z15 snapshots (Mar–May 2026, plus new runs) were mapped onto blocks. The test compared each block's evening (6pm–midnight) congestion with its own weekday-midday baseline.
+- Result: no parking-search signal on residential streets. Per-cell ρ vs evening permit tickets, night double parking, and simulated contention: −0.04, −0.08, and −0.04.
+- Evenings are less congested than middays on arterials and residential streets alike.
+- The data stays useful for arterial drive times by hour in the search-path optimizer.
+- A fairer retest needs overnight free-flow snapshots (the scrape schedule skips about midnight–6am).
 
 ## Known gaps
 - North K-town (3rd St to Beverly) needs parcel data. `dtla_parcels.csv` ends at 34.073.
