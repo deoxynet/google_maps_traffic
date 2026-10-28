@@ -76,7 +76,7 @@ aside { display: grid; gap: 12px; min-width: 0; }
 <div class="wrap">
   <header>
     <h1>Curb Finder</h1>
-    <p class="sub">K-town &amp; Mid-Wilshire · tap where you're going, get the block loop most likely to give you a legal space</p>
+    <p class="sub"><span id="areaLabel">K-town &amp; Mid-Wilshire</span> · tap where you're going, get the block loop most likely to give you a legal space</p>
   </header>
 
   <div class="controls" role="group" aria-label="Trip settings">
@@ -153,6 +153,7 @@ aside { display: grid; gap: 12px; min-width: 0; }
   const FXY = new Float32Array(raw.fxy), FP = new Uint8Array(raw.fp), FLIM = new Uint8Array(raw.flim);
   const BL = D.blocks.map(a => { const p = []; for (let i = 0; i < a.length; i += 2) p.push([a[i], a[i + 1]]); return p; });
   const LOTS = D.lots;
+  if (D.area) document.getElementById('areaLabel').textContent = D.area;
   const [LAT0, LON0] = D.origin, MLAT = D.m_lat, MLON = D.m_lon;
   const toLL = (x, y) => [LAT0 + y / MLAT, LON0 + x / MLON];
   // per edge geometry

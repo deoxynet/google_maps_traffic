@@ -6,6 +6,7 @@ Writes data/parking_sim/viewer.html. Faces are drawn 6 m off the centerline towa
 means of the 15-minute slots. Validation numbers in the page are static text in viewer_template.html.
 """
 import base64
+import os
 import gzip
 import json
 import sys
@@ -56,8 +57,10 @@ def main():
     med = [[float(np.median(pf[legal[:, d, h], d, h])) if legal[:, d, h].any() else 0.0 for h in range(24)] for d in range(7)]
     data = dict(origin=[lat0, lon0], lines=lines,
                 meta=[[["L", "R"].index(f["side"]), CLASS_NAMES.index(f["cls"].replace("_", " ")), f["capacity"]] for f in F],
-                pfree=base64.b64encode(pf.tobytes()).decode(), rule=base64.b64encode(rh.tobytes()).decode(),
-                hardShare=share.tolist(), medianFree=med, spaces=int(cap.sum()), faces=n)
+                pfree=base64.b64encode(gzip.compress(pf.tobytes(), 9)).decode(),
+                rule=base64.b64encode(gzip.compress(rh.tobytes(), 9)).decode(),
+                hardShare=share.tolist(), medianFree=med, spaces=int(cap.sum()), faces=n,
+                title=os.environ.get("PARKSIM_TITLE"), areaText=os.environ.get("PARKSIM_AREA_TEXT"))
     page = (HERE / "viewer_template.html").read_text().replace("__DATA__", json.dumps(data, separators=(",", ":")))
     dest = OUT_DIR / "viewer.html"
     dest.write_text(page)

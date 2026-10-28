@@ -89,9 +89,9 @@ td.n { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-
 
 <div class="wrap">
   <header>
-    <h1>K-town Curb Contention</h1>
+    <h1 id="title">K-town Curb Contention</h1>
     <p class="sub">Simulated chance of finding a legal street space on each block face, by day and hour. Each street is drawn as its two curbs; darker means harder to park.</p>
-    <div class="facts"><span>I-10 to 3rd St · La Brea to Hoover</span><span><b id="fFaces"></b> block faces</span><span><b id="fSpaces"></b> legal spaces</span><span>Street cleaning shown for a 2nd/4th-week schedule</span></div>
+    <div class="facts"><span id="areaText">I-10 to 3rd St · La Brea to Hoover</span><span><b id="fFaces"></b> block faces</span><span><b id="fSpaces"></b> legal spaces</span><span>Street cleaning shown for a 2nd/4th-week schedule</span></div>
   </header>
 
   <div class="controls" role="group" aria-label="Day and time">
@@ -156,14 +156,16 @@ td.n { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-
 
 <script id="data" type="application/json">__DATA__</script>
 <script>
-(() => {
+(async () => {
   const D = JSON.parse(document.getElementById('data').textContent);
+  // per-face hourly arrays arrive gzipped + base64
+  const inflate = async s => new Uint8Array(await new Response(new Blob([Uint8Array.from(atob(s), c => c.charCodeAt(0))]).stream()
+    .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const CLASSES = ['Residential street', 'Unclassified street', 'Living street', 'Collector street', 'Secondary arterial', 'Primary arterial'];
   const RULES = ['', 'Street cleaning', 'Tow-away / no stopping', 'Permit only'];
   const n = D.faces;
-  const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-  const PF = b64(D.pfree), RU = b64(D.rule);
+  const [PF, RU] = await Promise.all([inflate(D.pfree), inflate(D.rule)]);
   const idx = (f, d, h) => (f * 7 + d) * 24 + h;
   const [lat0, lon0] = D.origin;
   const MLAT = 111320, MLON = 111320 * Math.cos(lat0 * Math.PI / 180);
@@ -179,6 +181,8 @@ td.n { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-
     return Math.abs(nx) > Math.abs(ny) ? (nx > 0 ? 'East side' : 'West side') : (ny > 0 ? 'North side' : 'South side');
   });
 
+  if (D.title) document.getElementById('title').textContent = D.title;
+  if (D.areaText) document.getElementById('areaText').textContent = D.areaText;
   document.getElementById('fFaces').textContent = n.toLocaleString();
   document.getElementById('fSpaces').textContent = D.spaces.toLocaleString();
 

@@ -77,7 +77,8 @@ def main():
         lots=[dict(name=l["name"], op=l["operator"], x=float(to_m(l["lat"], l["lon"])[0]), y=float(to_m(l["lat"], l["lon"])[1]),
                    rate=l["rate_per_hr"], max=l["daily_max"], hours=l["hours"], open=l["open"], verified=l.get("verified", True))
               for l in lots],
-        p_scale=P_SCALE, bbox=[float(v) for v in S["bbox"]])
+        p_scale=P_SCALE, bbox=[float(v) for v in S["bbox"]],
+        area=os.environ.get("PARKSIM_AREA_LABEL", "K-town & Mid-Wilshire"))
     tpl = (HERE / "app_template.html").read_text()
     page = tpl.replace("__DATA__", json.dumps(data, separators=(",", ":")))
     dest = OUT_DIR / "app.html"
