@@ -38,7 +38,7 @@ PARK_S, WALK_MPS, DETOUR = 30.0, 1.3, 1.25
 REVISIT = 0.35
 # CAL: per-pass chance multiplier. The capture rate counts every face a simulated searcher scans at once, so it
 # overstates one driver's chance about 4x; 0.25 made predicted loop times match in-sim probe drivers within ~0.8 min
-P_SCALE = float(__import__("os").environ.get("PARKSIM_P_SCALE", 0.25))
+P_SCALE = float(__import__("os").environ.get("PARKSIM_P_SCALE", 0.5))
 LOT_ENTRY_S = 120.0
 UNVERIFIED_S = 300.0      # an OSM garage with no access tag may be tenant-only: about a coin flip of driving on
 FAR_FALLBACK_S = 900.0    # no public lot in range: keep searching farther out

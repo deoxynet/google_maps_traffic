@@ -39,10 +39,18 @@ python3 scripts/parking_sim/build_app.py           # Curb Finder app page (optim
   - Country Club Park, Wed 7pm: 3.8 min vs 18.4. Circling the nearest blocks hits permit-only streets.
   - Western & 6th, Fri 8pm: about 5% within 400 m, so the advice is a lot. That's the simulator's view; evening absolute levels are uncalibrated.
 - **Answer format:** each query reports "straight to a lot" (name, walk, price for `--stay` hours where posted) next to the best street loop, with a lot to use if the loop fails. It also shows whether walking up to 800 m is worth it.
-- **Calibration (`PARKSIM_P_SCALE`, default 0.25):** the capture rate counts every face a simulated searcher scans in one instant, so it overstates one driver's chance about 4×. `evaluate_routes.py` checked this with probe drivers following the planned loops minute by minute in a fresh simulated day:
+- **Calibration (`PARKSIM_P_SCALE`, default 0.5; 0.25 before 2026-10-28):** the capture rate counts every face a simulated searcher scans in one instant, so it overstates one driver's chance, by about 2× with the current model. `evaluate_routes.py` checked this with probe drivers following the planned loops minute by minute in a fresh simulated day:
   - 30 destinations, 5 time slots, 6 start times.
   - Optimized: 7.9 min to the door. Typical circling: 14.7 min. The optimized loop was faster or equal in 89% of 900 paired trips.
-  - With 0.25, predicted loop times match the probes within about 0.8 min in every slot.
+  - With 0.25, predicted loop times matched the probes within about 0.8 min in every slot.
+  - Rechecked 2026-10-28 with the current model: route quality is the same at 0.25, 0.35 and 0.5 (K-town 7.5–7.6 vs 14.5 min; region 4.7–4.8 vs 8.6). The planner's mean error on optimized loop times:
+
+    | Area | 0.25 | 0.5 |
+    |---|---|---|
+    | K-town | 0.72 min (always high) | 0.34 min |
+    | Region | 1.14 min | 0.16 min |
+
+    Its estimate for typical circling is optimistic at either value (K-town evenings: 13.8–14.7 predicted vs 17 realized), so the app understates the savings.
 - **By hour** (`evaluate_routes.py --scenarios ...`, 20 destinations × 4 start times, 800 paired trips): minutes to the door, optimized vs typical circling. Overall 6.5 vs 12.7; optimized is faster or equal in 87% of trips.
 
   | Time | Optimized | Typical circling |
@@ -183,6 +191,10 @@ What it shows:
 - **Night.** Capacity per curb-km alone correlates −0.16 to −0.55 with double parking, likely because enforcement-heavy streets collect both exclusion tickets and double-parking tickets. The partial ρ is what the simulator adds beyond it. In K-town it is small: nights are saturated (98% median occupancy) and variation is mostly capacity. Partials use average ranks, since most cells tie at zero tickets.
 - **Permit spillover outside K-town.** Mid-City–Fairfax and Koreatown–Westlake hold up. South LA does not. Its 196 faces fall in three clusters: Leimert Park is under-predicted, Crenshaw & Exposition over-predicted, and near Manchester nothing is predicted at all. The Crenshaw over-prediction comes from strip-mall businesses that have their own lots; neither the places data nor the parcels say so, and OSM maps few lots there. Satellite off-street car counts near a place track density, not lots: K-town scores higher than South LA. So that fix was not used.
 - **Weekday middays** trail the satellite estimator they are anchored to, most in Koreatown–Westlake. The daytime dynamics (who leaves, where workers and visitors park, overflow) blur the resident pattern. Saturday's higher ρ is partly structural: with residents home, the pattern is mostly the anchor's.
+- **What blurs weekday middays** (Koreatown–Westlake, Monday, components run alone or in pairs). Midday ρ vs the aerial: residents alone 0.32, residents + visitors 0.27, residents + commuters 0.20, everything 0.17. Commuters alone sit on a few job-dense blocks, such as the Wilshire Center towers. Visitors alone run against the photo (−0.20). Two one-seed tests across all four boxes changed nothing beyond seed noise:
+  - Halving daytime visitors, with evenings unchanged (`PARKSIM_VISITOR_SCALE=0.125`, `PARKSIM_VISITOR_EVENING=6`).
+  - A 2% commuter curb share (`PARKSIM_COMMUTER_CURB=0.02`), which also pushed sweeping levels further from the tickets (South LA 52 vs 38).
+  The night anchor rescales residents so the midday total still matches, so cutting other demand mostly adds residents back. The blur comes from overall saturation and overflow, not one component. Defaults stay.
 - **Search-path optimizer, region-wide** (`evaluate_routes.py --dests 40`, probes in a fresh seed): 4.7 vs 8.6 min to the door over 1,200 paired trips; optimized faster or equal in 82%. Planned times run about 1–1.5 min high, so the app is conservative.
 
 To reproduce one box: `PARKSIM_REGION=sim_area PARKSIM_HOLDOUT=33.965,34.02,-118.395,-118.255 PARKSIM_OUT=/tmp/v PARKSIM_PAR=3 python3 scripts/parking_sim/validate.py` (about 3 min, 4 GB). Add `PARKSIM_REUSE=1` to rescore saved days.
@@ -191,7 +203,7 @@ To reproduce one box: `PARKSIM_REGION=sim_area PARKSIM_HOLDOUT=33.965,34.02,-118
 - North K-town (3rd St to Beverly) needs parcel data. `dtla_parcels.csv` ends at 34.073.
 - Swept sides are learned from where sweep tickets land. Routes with too few tickets fall back to the convention (north or east side takes the earlier day).
 - Inner faces of divided roads get zero capacity. That is right for medians, but a few wide boulevards with parking on the inner side lose it.
-- The region uses K-town's calibration (visitor scale, night scale, P_SCALE). Held-out checks above say it transfers, except South LA permit spillover.
+- The region uses K-town's calibration (visitor scale, night scale); P_SCALE was checked region-wide. Held-out checks above say it transfers, except South LA permit spillover.
 - The anchor's reference day is still Wednesday 11–13h. The aerial is a Monday 12–2pm; the levels differ little (about 35 vs 33 cars/km).
 - Evenings rest on ticket proxies; there are no ground counts.
 - Weekday midday spatial accuracy trails the satellite estimator (0.14–0.40 vs 0.33–0.47 held out).

@@ -20,7 +20,7 @@ sys.path.insert(0, str(HERE.parents[0] / "curb"))
 from common import M_LAT, M_LON  # noqa: E402
 from supply import OUT_DIR  # noqa: E402
 
-P_SCALE = float(os.environ.get("PARKSIM_P_SCALE", 0.25))
+P_SCALE = float(os.environ.get("PARKSIM_P_SCALE", 0.5))
 # binary arrays are gzipped before base64 (mostly zeros: several times smaller); the page inflates them with
 # DecompressionStream, so a whole-region build stays under the 16 MB page limit
 b64 = lambda a: base64.b64encode(gzip.compress(np.ascontiguousarray(a).tobytes(), 9)).decode()
