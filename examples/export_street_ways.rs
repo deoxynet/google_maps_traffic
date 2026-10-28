@@ -29,9 +29,18 @@ struct Way {
 }
 
 #[derive(Serialize)]
+struct ParkingLot {
+    id: i64,
+    tags: BTreeMap<String, String>,
+    lat: f64,
+    lon: f64,
+}
+
+#[derive(Serialize)]
 struct Output {
     bounds: [f64; 4],
     ways: Vec<Way>,
+    parking: Vec<ParkingLot>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -43,6 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut coords: HashMap<i64, (f64, f64)> = HashMap::new();
     let mut ways = Vec::new();
+    let mut parking = Vec::new();
     ElementReader::from_path(&pbf)?.for_each(|el| match el {
         Element::Node(nd) => {
             if inside(nd.lat(), nd.lon(), NODE_MARGIN) {
@@ -55,6 +65,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         Element::Way(way) => {
+            if way.tags().any(|(k, v)| k == "amenity" && v == "parking") {
+                // parking lot outline -> centroid of its nodes inside the box
+                let pts: Vec<(f64, f64)> = way.refs().filter_map(|id| coords.get(&id).copied()).collect();
+                if !pts.is_empty() {
+                    let (la, lo) = pts.iter().fold((0.0, 0.0), |a, p| (a.0 + p.0, a.1 + p.1));
+                    let (la, lo) = (la / pts.len() as f64, lo / pts.len() as f64);
+                    if inside(la, lo, 0.0) {
+                        let tags = way.tags()
+                            .filter(|(k, _)| ["name", "access", "fee", "parking", "capacity", "operator", "opening_hours"].contains(k))
+                            .map(|(k, v)| (k.to_string(), v.to_string())).collect();
+                        parking.push(ParkingLot { id: way.id(), tags, lat: la, lon: lo });
+                    }
+                }
+                return;
+            }
             let mut highway = None;
             let mut tags = BTreeMap::new();
             for (k, v) in way.tags() {
@@ -81,11 +106,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         std::fs::create_dir_all(dir)?;
     }
     let mut out = BufWriter::new(std::fs::File::create(&output)?);
+    let n_parking = parking.len();
     serde_json::to_writer(&mut out, &Output { bounds: [s, w, n, e], ways: ways.iter().map(|w| Way {
-        id: w.id, highway: w.highway.clone(), tags: w.tags.clone(), nodes: w.nodes.clone() }).collect() })?;
+        id: w.id, highway: w.highway.clone(), tags: w.tags.clone(), nodes: w.nodes.clone() }).collect(), parking })?;
     out.flush()?;
-    let parking = ways.iter().filter(|w| w.tags.keys().any(|k| k.starts_with("parking:"))).count();
+    let parking_tagged = ways.iter().filter(|w| w.tags.keys().any(|k| k.starts_with("parking:"))).count();
     let oneway = ways.iter().filter(|w| w.tags.get("oneway").map_or(false, |v| v != "no")).count();
-    eprintln!("{} ways ({} one-way, {} with parking tags), {} nodes kept -> {}", ways.len(), oneway, parking, coords.len(), output);
+    eprintln!("{} ways ({} one-way, {} with parking tags), {} parking lots, {} nodes kept -> {}", ways.len(), oneway, parking_tagged, n_parking, coords.len(), output);
     Ok(())
 }

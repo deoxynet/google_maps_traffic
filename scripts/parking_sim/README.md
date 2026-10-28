@@ -13,6 +13,7 @@ python3 scripts/parking_sim/traffic_profiles.py    # Google traffic history (R2,
 python3 scripts/parking_sim/traffic_signal.py      # does traffic show parking search? (2026-10-27: no, see below)
 BOUNDS=34.029,-118.351,34.0785,-118.274 cargo run --release --example export_street_ways --features osm -- socal.osm.pbf
 python3 scripts/parking_sim/network.py             # directed driving graph (one-way, names, curb faces per direction)
+python3 scripts/parking_sim/lots.py                # public lots (city, LAZ, SP+, ACE, ABM, OSM) -> lots.json
 python3 scripts/parking_sim/optimize.py --dest 34.0560,-118.3090 --day Sat --time 13:00   # search loop + Maps links
 ```
 
@@ -25,7 +26,9 @@ python3 scripts/parking_sim/optimize.py --dest 34.0560,-118.3090 --day Sat --tim
   - A second pass over a block on the same loop counts at 35%.
 - **Cost of the search:**
   - Parking costs the drive so far, plus 30 s to park, plus the walk at 1.3 m/s.
-  - Ending the loop without a space costs a fallback, 15 min by default, meaning a garage.
+  - Ending the loop without a space costs the best public lot from where the loop ends: driving time over the graph, plus 2 min to get in and pay, plus the walk. If no lot is within reach, it's 15 min of searching farther.
+  - Lots come from `lots.json`: 47 in the area. Only the 6 city lots have posted rates and hours.
+  - 17 untagged OSM multi-storey garages count as "likely public", with a 5-minute penalty because they may be tenant-only.
 - **Search method:** beam search over loops of up to 10 minutes of driving.
 - **Baseline:** a driver who keeps taking the next block closest to the destination.
 - **Output:** Google Maps links with up to 9 waypoints (desktop) or 3 (mobile), placed at the middle of each block after a turn. The origin is omitted, so the route starts at the user's location.
@@ -33,8 +36,9 @@ python3 scripts/parking_sim/optimize.py --dest 34.0560,-118.3090 --day Sat --tim
   - Western & 8th, Sat 1pm: a 56% loop, 12.2 min expected vs 19.7 for typical circling; walking up to 800 m brings it to 7.8 min.
   - Country Club Park, Wed 7pm: 3.8 min vs 18.4. Circling the nearest blocks hits permit-only streets.
   - Western & 6th, Fri 8pm: about 5% within 400 m, so the advice is a lot. That's the simulator's view; evening absolute levels are uncalibrated.
+- **Answer format:** each query reports "straight to a lot" (name, walk, price for `--stay` hours where posted) next to the best street loop, with a lot to use if the loop fails. It also shows whether walking up to 800 m is worth it.
 - **Known gaps:**
-  - The fallback is a flat cost rather than real nearby lots.
+  - Most lots have no posted price or hours, and lot occupancy is unknown.
   - A waypoint fixes the block but not the travel direction, which matters for right-side parking.
   - The loop starts at the intersection nearest the destination, not along the driver's approach.
 

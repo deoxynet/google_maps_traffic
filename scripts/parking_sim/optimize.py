@@ -8,15 +8,17 @@ Model (the probability-aware search of Hickert et al. 2026, on curb faces instea
     (falls back to the share of time the face had a free space when too few searchers checked it). A block already
     passed on this loop counts at 35% (its spaces were just seen full)
   * parking on a block costs: drive time to its middle + 30 s to park + walk to the destination at 1.3 m/s
-  * never parking within the loop costs: loop time + a fallback (a garage), 15 min by default
+  * never parking within the loop costs: loop time + the best public lot from where the loop ends (driving time
+    over the street graph + 2 min to get in and pay + walk; unverified OSM garages +2 min), from lots.json
 Beam search over loops up to --max-drive seconds. The baseline is a driver who heads for the destination and keeps
 circling as close to it as possible.
 
-Usage: python3 scripts/parking_sim/optimize.py --dest 34.0637,-118.3090 --day Fri --time 20:00 [--walk 400]
+Usage: python3 scripts/parking_sim/optimize.py --dest 34.0637,-118.3090 --day Fri --time 20:00 [--walk 400] [--stay 2]
 """
 import argparse
 import gzip
 import heapq
+from collections import defaultdict
 import json
 import math
 import sys
@@ -34,6 +36,9 @@ from supply import OUT_DIR  # noqa: E402
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 PARK_S, WALK_MPS, DETOUR = 30.0, 1.3, 1.25
 REVISIT = 0.35
+LOT_ENTRY_S = 120.0
+UNVERIFIED_S = 300.0      # an OSM garage with no access tag may be tenant-only: about a coin flip of driving on
+FAR_FALLBACK_S = 900.0    # no public lot in range: keep searching farther out
 
 
 class Planner:
@@ -58,6 +63,12 @@ class Planner:
         le = list(ls[1:]) + [len(self.N["line"])]
         self.lines = [self.N["line"][a:b] for a, b in zip(ls, le)]
         self.mid = np.array([xy(l[len(l) // 2:len(l) // 2 + 1, 0], l[len(l) // 2:len(l) // 2 + 1, 1])[0] for l in self.lines])
+        self.lots = json.load(open(OUT_DIR / "lots.json"))
+        self.lot_xy = xy([x["lat"] for x in self.lots], [x["lon"] for x in self.lots])
+        self.lot_node = cKDTree(self.node_xy).query(self.lot_xy)[1]
+        self.into = defaultdict(list)
+        for e, d in enumerate(self.N["dst"]):
+            self.into[d].append(e)
         self.heading = np.array([math.atan2(*(lambda m: (m[-1, 1] - m[0, 1], m[-1, 0] - m[0, 0]))(xy(l[:, 0], l[:, 1]))) for l in self.lines])
 
     def edge_terms(self, dest, day, slot, walk_max):
@@ -76,7 +87,39 @@ class Planner:
         tt = self.N["travel_s"][:, int(day >= 5), slot // 4].astype(float)
         return p, walk, tt
 
-    def evaluate(self, route, terms, fallback):
+    def lot_costs(self, dest, day, slot, walk_max):
+        """For every node: seconds to the best open public lot (drive + entry + walk) and which lot."""
+        tt = self.N["travel_s"][:, int(day >= 5), slot // 4].astype(float)
+        n = len(self.node_xy)
+        best, which = np.full(n, np.inf), np.full(n, -1)
+        for i, lot in enumerate(self.lots):
+            walk = np.hypot(*(self.lot_xy[i] - dest)) * DETOUR
+            if walk > max(walk_max, 800) or (lot["open"] and not lot["open"][day][slot // 4]):
+                continue
+            extra = LOT_ENTRY_S + walk / WALK_MPS + (0.0 if lot.get("verified", True) else UNVERIFIED_S)
+            dist = np.full(n, np.inf)
+            dist[self.lot_node[i]] = 0.0
+            pq = [(0.0, self.lot_node[i])]
+            while pq:  # reverse Dijkstra: time from every node to this lot
+                d, v = heapq.heappop(pq)
+                if d > dist[v]:
+                    continue
+                for e in self.into[v]:
+                    u = self.N["src"][e]
+                    if d + tt[e] < dist[u]:
+                        dist[u] = d + tt[e]
+                        heapq.heappush(pq, (dist[u], u))
+            cost = dist + extra
+            better = cost < best
+            best[better], which[better] = cost[better], i
+        far = best > FAR_FALLBACK_S
+        best[far], which[far] = FAR_FALLBACK_S, -1
+        return best, which
+
+    def evaluate(self, route, terms, fallback, start=None):
+        if not np.isscalar(fallback):
+            node = self.N["dst"][route[-1]] if route else start
+            fallback = fallback[node]
         p, walk, tt = terms
         E, S, T, seen = 0.0, 1.0, 0.0, set()
         for e in route:
@@ -92,10 +135,12 @@ class Planner:
         return 3.0 if d < math.radians(40) else (12.0 if d < math.radians(140) else 25.0)
 
     def optimize(self, start, terms, fallback, max_drive, beam=400):
+        """fallback: seconds to the best lot from each node (array) or a flat cost."""
         p, walk, tt = terms
+        G = (lambda v: fallback[v]) if not np.isscalar(fallback) else (lambda v: fallback)
         # state: (J, E, S, T, node, last_edge, route)
-        frontier = [(fallback, 0.0, 1.0, 0.0, start, -1, ())]
-        best = (fallback, ())
+        frontier = [(G(start), 0.0, 1.0, 0.0, start, -1, ())]
+        best = (G(start), ())
         while frontier:
             nxt = {}
             for J, E, S, T, node, last, route in frontier:
@@ -109,7 +154,7 @@ class Planner:
                     pe = p[e] * (REVISIT if self.N["block"][e] in seen else 1.0)
                     E2 = E + S * pe * (t0 + tt[e] / 2 + PARK_S + walk[e] / WALK_MPS)
                     S2, T2 = S * (1 - pe), t0 + tt[e]
-                    J2 = E2 + S2 * (T2 + fallback)
+                    J2 = E2 + S2 * (T2 + G(self.N["dst"][e]))
                     key = (self.N["dst"][e], e)
                     if key not in nxt or J2 < nxt[key][0]:
                         nxt[key] = (J2, E2, S2, T2, self.N["dst"][e], e, route + (e,))
@@ -176,7 +221,7 @@ def main():
     ap.add_argument("--time", default="20:00")
     ap.add_argument("--walk", type=float, default=400, help="max walk to the destination, metres")
     ap.add_argument("--max-drive", type=float, default=600, help="longest search loop, seconds of driving")
-    ap.add_argument("--fallback", type=float, default=900, help="cost of giving up for a garage, seconds")
+    ap.add_argument("--stay", type=float, default=2.0, help="planned stay in hours (for lot prices)")
     args = ap.parse_args()
     lat, lon = map(float, args.dest.split(","))
     hh, mm = map(int, args.time.split(":"))
@@ -193,21 +238,42 @@ def main():
               f" ({'worth it' if J8 < Jo - 30 else 'not worth it'})")
 
 
+def lot_text(pl, i, dest, stay):
+    lot = pl.lots[i]
+    walk = np.hypot(*(pl.lot_xy[i] - dest)) * DETOUR
+    if lot["rate_per_hr"] is not None:
+        price = lot["rate_per_hr"] * stay
+        if lot["daily_max"]:
+            price = min(price, lot["daily_max"])
+        price_s = f"${price:.2f} for {stay:g} h"
+    else:
+        price_s = "price not posted"
+    flag = "" if lot.get("verified", True) else ", unverified public garage (OSM)"
+    return f"{lot['name']} ({lot['operator']}), {walk:.0f} m walk, {price_s}{flag}"
+
+
 def plan(pl, dest, start, day, slot, args, lat, lon, quiet=False):
     terms = pl.edge_terms(dest, day, slot, args.walk)
-    J, route = pl.optimize(start, terms, args.fallback, args.max_drive)
-    Jo, Po, To = pl.evaluate(route, terms, args.fallback)
+    G, which = pl.lot_costs(dest, day, slot, args.walk)
+    J, route = pl.optimize(start, terms, G, args.max_drive)
+    Jo, Po, To = pl.evaluate(route, terms, G, start)
     if quiet:
         return Jo, Po
     base = pl.baseline(start, dest, args.max_drive, terms)
-    Jb, Pb, Tb = pl.evaluate(base, terms, args.fallback)
+    Jb, Pb, Tb = pl.evaluate(base, terms, G, start)
     print(f"{args.day} {args.time}, destination {lat:.5f},{lon:.5f}, walk <= {args.walk:.0f} m")
-    print(f"  optimized loop: expected {Jo / 60:.1f} min to the door; finds a space within the loop {Po:.0%}; loop {To / 60:.1f} min of driving")
-    print(f"  typical circling: expected {Jb / 60:.1f} min; finds a space {Pb:.0%}; saves {(Jb - Jo) / 60:.1f} min ({(Jb - Jo) / Jb:.0%})")
-    print(f"  route: {pl.describe(route)}")
+    if which[start] >= 0:
+        print(f"  straight to a lot: {G[start] / 60:.1f} min to the door: {lot_text(pl, which[start], dest, args.stay)}")
+    else:
+        print("  no public lot within reach")
     if not route:
-        print("  no street search beats the fallback here: go straight to a garage or lot")
+        print("  street search doesn't beat that: go straight to the lot" if which[start] >= 0 else "  no street search helps here")
         return Jo, Po
+    end = pl.N["dst"][route[-1]]
+    print(f"  optimized street loop: expected {Jo / 60:.1f} min to the door; finds a space within the loop {Po:.0%};"
+          f" loop {To / 60:.1f} min of driving; if it fails: {lot_text(pl, which[end], dest, args.stay) if which[end] >= 0 else 'no lot'}")
+    print(f"  typical circling (then the nearest lot): expected {Jb / 60:.1f} min; finds a space {Pb:.0%}; the loop saves {(Jb - Jo) / 60:.1f} min")
+    print(f"  route: {pl.describe(route)}")
     desk = pl.waypoints(route, terms, 9)
     mob = pl.waypoints(route, terms, 3)
     print(f"  Google Maps ({len(desk) - 1} waypoints): {pl.maps_link(desk)}")
