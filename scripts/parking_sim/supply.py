@@ -20,6 +20,7 @@ Writes data/parking_sim/supply.npz
 """
 import argparse
 import json
+import os
 import math
 import sqlite3
 import sys
@@ -34,10 +35,11 @@ from shapely.geometry import shape
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "curb"))
 from common import BASE_DIR, CLASSES, CURB_DIR, LA_PARKING_DB, M_LAT, M_LON, ROADS_DB, xy  # noqa: E402
 
-OUT_DIR = BASE_DIR / "data" / "parking_sim"
+OUT_DIR = BASE_DIR / "data" / "parking_sim" / __import__("os").environ.get("PARKSIM_REGION", "")  # "" = K-town default
 TEST_BBOX = (34.035, 34.0725, -118.345, -118.280)  # K-town / Mid-Wilshire, Pico to ~3rd St (parcel data ends 34.073)
 SLOTS = 96            # 15-minute slots per day
 SPACE_M = 6.1         # curb length per parallel space
+TIME_LIMIT_MIN = 120  # assumed limit where over-time-limit tickets are written (LA's most common posting)
 SETBACK_M = 7.0       # no parking near each intersection
 MAX_BLOCK_M = 200.0
 # distance from centerline to the middle of the parking lane, by class (from the satellite offset histograms)
@@ -222,11 +224,14 @@ def ticket_curb(faces, samples):
             excl_m[f] += b2 - a2
     geom_m = np.array([max(0.0, f["length_m"] - f["ends"] * SETBACK_M) for f in faces])
     excl_m = np.minimum(excl_m, geom_m)
-    out = dict(excl_m=excl_m, clusters=clusters, nostop=defaultdict(list), loading=defaultdict(list), double_night=np.zeros(len(faces)))
+    out = dict(excl_m=excl_m, clusters=clusters, nostop=defaultdict(list), loading=defaultdict(list), timelimit=defaultdict(list),
+               double_night=np.zeros(len(faces)))
     ki = {k: i for i, k in enumerate(kinds)}
     for f, H in hours.items():
         for k in ("nostop", "nopark"):
             out["nostop"][f] += hour_windows(H[ki[k]])
+        # posted time limits (the tickets don't say the limit; TIME_LIMIT_MIN is assumed)
+        out["timelimit"][f] += hour_windows(H[ki["timelimit"]], min_total=5)
         for k, m in LOADING_M.items():
             if loading[f][k]:
                 spaces = len(loading[f][k]) * m / SPACE_M
@@ -329,7 +334,7 @@ def sweeping(faces, curb_ll, samples=None):
         n = f["normal"]
         ne.append(n[1] > 0 if abs(n[1]) >= abs(n[0]) else n[0] > 0)
     tick_day = {}
-    if samples is not None:
+    if samples is not None and os.environ.get("PARKSIM_SWEEP_SIDE") != "convention":
         pts, owner = samples
         C = np.load(CURB_DIR / "citations_sweep_2023plus.npy")
         d, j = cKDTree(pts).query(xy(C[:, 0], C[:, 1]), distance_upper_bound=10)
@@ -467,6 +472,11 @@ def main():
     for f, sl in tk["loading"].items():
         for (wd, q), sp in sl:
             loading[f, wd, q] = sp
+    # longest legal stay per slot (minutes, 0 = no limit): meter max stay, else the assumed posted limit
+    for f, sl in tk["timelimit"].items():
+        for wd, q in sl:
+            if maxstay[f, wd, q] == 0:
+                maxstay[f, wd, q] = TIME_LIMIT_MIN
     core = (curb_ll[:, 0] >= bbox[0]) & (curb_ll[:, 0] <= bbox[1]) & (curb_ll[:, 1] >= bbox[2]) & (curb_ll[:, 1] <= bbox[3])
     sweep_route = np.array([sw[f]["route"] if f in sw else "" for f in range(n)])
     sweep_source = np.array([sw[f]["source"] if f in sw else "" for f in range(n)])
@@ -487,6 +497,7 @@ def main():
           f"median {np.median(share[c]):.0%})")
     print("  core by class: " + ", ".join(f"{k} {cap[c & (cls == i)].sum():,.0f}" for i, k in enumerate(CLASSES) if (c & (cls == i)).any()))
     print(f"  median-side faces on divided roads set to 0: {int((median & core).sum())} in the core ({geom[median & core].sum() * usable[median & core].mean() if (median & core).any() else 0:,.0f} spaces removed)")
+    print(f"  stay limits (meters or time-limit tickets) on {int((maxstay.max((1, 2)) > 0)[core].sum())} core faces")
     src = [v["source"] for v in sw.values()]
     print(f"  sweeping side from tickets on {src.count('tickets')} faces, convention on {src.count('convention')}")
     print(f"  sweeping {len(sw)} faces; permit districts {len(ppd)}; meters {len(mt)}; ticket no-stop/no-park windows "

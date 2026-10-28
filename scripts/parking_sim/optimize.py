@@ -50,6 +50,7 @@ class Planner:
         self.N = {k: N[k] for k in N.files}
         S = np.load(OUT_DIR / "supply.npz")
         self.face_xy = S["xy"]
+        self.maxstay = S["maxstay"]   # [face, weekday, slot] minutes, 0 = no limit
         Ex = json.load(gzip.open(OUT_DIR / "contention_week.json.gz", "rt"))
         self.p_free = np.zeros((len(S["xy"]), 7, 96), np.float32)   # faces without parking stay 0
         ids = np.array([f["id"] for f in Ex["faces"]])
@@ -74,8 +75,9 @@ class Planner:
             self.into[d].append(e)
         self.heading = np.array([math.atan2(*(lambda m: (m[-1, 1] - m[0, 1], m[-1, 0] - m[0, 0]))(xy(l[:, 0], l[:, 1]))) for l in self.lines])
 
-    def edge_terms(self, dest, day, slot, walk_max):
-        """Per directed edge: chance of a usable free space, expected walk, drive time."""
+    def edge_terms(self, dest, day, slot, walk_max, stay_min=0):
+        """Per directed edge: chance of a usable free space, expected walk, drive time.
+        Faces whose legal stay at arrival (meter max stay or posted time limit) is shorter than stay_min don't count."""
         p = np.zeros(len(self.N["src"]))
         walk = np.zeros(len(self.N["src"]))
         for side in ("face_right", "face_left"):
@@ -83,7 +85,9 @@ class Planner:
             ok = f >= 0
             d = np.full(len(f), np.inf)
             d[ok] = np.hypot(*(self.face_xy[f[ok]] - dest).T) * DETOUR
-            pf = np.where(ok & (d <= walk_max), np.minimum(self.p_free[np.maximum(f, 0), day, slot] * P_SCALE, 1.0), 0.0)
+            lim = self.maxstay[np.maximum(f, 0), day, slot]
+            legal_stay = (lim == 0) | (lim >= stay_min)
+            pf = np.where(ok & (d <= walk_max) & legal_stay, np.minimum(self.p_free[np.maximum(f, 0), day, slot] * P_SCALE, 1.0), 0.0)
             dd = np.where(pf > 0, d, 0.0)
             walk = np.where(pf > 0, (walk * p + dd * pf * (1 - p)) / np.maximum(p + pf * (1 - p), 1e-9), walk)
             p = 1 - (1 - p) * (1 - pf)
@@ -303,7 +307,7 @@ def lot_text(pl, i, dest, stay):
 
 
 def plan(pl, dest, start, day, slot, args, lat, lon, quiet=False):
-    terms = pl.edge_terms(dest, day, slot, args.walk)
+    terms = pl.edge_terms(dest, day, slot, args.walk, args.stay * 60)
     G, which = pl.lot_costs(dest, day, slot, args.walk)
     J, route = pl.optimize(start, terms, G, args.max_drive, last=getattr(args, "last", -1))
     Jo, Po, To = pl.evaluate(route, terms, G, start)

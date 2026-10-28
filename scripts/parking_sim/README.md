@@ -66,6 +66,7 @@ python3 scripts/parking_sim/build_app.py           # Curb Finder app page (optim
     - posted street sweeping, by week of the month. Which side is swept on which day is learned per (route, street, side) from where sweep tickets land: deriving the day from half the tickets matched the other half 84% of the time, vs 50% for the old north/east-first convention, which is now only the fallback;
     - permit-district hours, from preferential-parking tickets pooled within 150 m;
     - meter paid hours, max stay, and tow-away windows;
+    - posted time limits, from the hours over-time-limit tickets are written. The limit itself isn't in the tickets, so it is assumed to be 2 h. The optimizer and app skip faces whose legal stay at arrival is shorter than the planned stay (`--stay`);
     - no-stopping / no-parking windows and loading-zone hours, from the hours those tickets are written.
 - **Demand** (`demand.py`)
   - **Residents:** parcels give units and off-street spaces; LODES gives scale; plus commute and errand trips.
@@ -82,6 +83,9 @@ python3 scripts/parking_sim/build_app.py           # Curb Finder app page (optim
   - The satellite-trained estimator (`scripts/curb/occupancy_model.py`) sets where resident cars live overnight.
   - A single scale makes the area's midday total match.
   - The daytime pattern comes from the simulated dynamics. `--anchor midday` instead matches each cell's midday directly; it validated slightly worse.
+
+## Regions
+`PARKSIM_REGION=<name>` writes every output to `data/parking_sim/<name>/` instead of the K-town default. Pass the region's `--bbox` to `supply.py` and run the street export with matching `BOUNDS`. `PARKSIM_PAR` limits how many simulated days `export.py` runs at once; lower it for big regions, since memory is the limit. `sim_area` (33.965–34.0725, −118.395 to −118.255) has 34,871 faces with parking and about 404k spaces.
 
 ## Calibration and validation (2026-10-27)
 The core is K-town / Mid-Wilshire, 34.035–34.0725, −118.345 to −118.28: 5,976 faces with parking and 59,945 legal spaces.

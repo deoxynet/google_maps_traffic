@@ -54,8 +54,9 @@ def main():
         (tmp / f"s{seed}").mkdir()
     subprocess.run(base + ["--weekday", "2"], env=env(1), check=True, stdout=subprocess.DEVNULL)  # builds the anchor cache
     jobs = [(wd, seed) for wd in range(7) for seed in range(1, args.seeds + 1) if (wd, seed) != (2, 1)]
-    for i in range(0, len(jobs), 10):  # 10 days at a time
-        procs = [subprocess.Popen(base + ["--weekday", str(wd)], env=env(seed), stdout=subprocess.DEVNULL) for wd, seed in jobs[i:i + 10]]
+    par = int(os.environ.get("PARKSIM_PAR", 10))   # simulated days at a time (lower it for big regions: memory)
+    for i in range(0, len(jobs), par):
+        procs = [subprocess.Popen(base + ["--weekday", str(wd)], env=env(seed), stdout=subprocess.DEVNULL) for wd, seed in jobs[i:i + par]]
         if any(p.wait() for p in procs):
             raise RuntimeError("simulation failed")
     for wd in range(7):

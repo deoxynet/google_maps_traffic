@@ -59,6 +59,8 @@ def main():
     pf[ids] = P.reshape(len(ids), 7, 24, 4).mean(3)
     pf = np.clip(np.rint(pf * P_SCALE), 0, 100).astype(np.uint8)
     tt = np.clip(np.rint(N["travel_s"]), 1, 255).astype(np.uint8)          # [edge, weekend, hour]
+    # legal stay per face, day, hour in quarter hours (0 = no limit): meter max stay or assumed posted limit
+    lim = np.clip(S["maxstay"][:, :, ::4] // 15, 0, 255).astype(np.uint8)
     data = dict(
         origin=[lat0, lon0], m_lat=M_LAT, m_lon=M_LON,
         nodes=b64(np.c_[nx, ny].astype(np.float32)),
@@ -68,7 +70,8 @@ def main():
                    face_r=b64(N["face_right"].astype(np.int16)), face_l=b64(N["face_left"].astype(np.int16)),
                    tt=b64(tt), name=[str(x) for x in N["name"]]),
         blocks=block_lines,
-        faces=dict(xy=b64(np.c_[fx, fy].astype(np.float32)), p=b64(pf), cap=b64(np.rint(S["capacity"]).astype(np.uint8))),
+        faces=dict(xy=b64(np.c_[fx, fy].astype(np.float32)), p=b64(pf), cap=b64(np.rint(S["capacity"]).astype(np.uint8)),
+                   lim=b64(lim)),
         lots=[dict(name=l["name"], op=l["operator"], x=float(to_m(l["lat"], l["lon"])[0]), y=float(to_m(l["lat"], l["lon"])[1]),
                    rate=l["rate_per_hr"], max=l["daily_max"], hours=l["hours"], open=l["open"], verified=l.get("verified", True))
               for l in lots],

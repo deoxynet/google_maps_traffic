@@ -95,6 +95,7 @@ aside { display: grid; gap: 12px; min-width: 0; }
         <span><span class="ramp" aria-hidden="true"></span> chance a passing driver gets a space (dark = hard)</span>
         <span><span class="swatch" aria-hidden="true"></span> your search loop</span>
         <span><b>P</b> public lot</span>
+        <span>Meters and posted time limits shorter than your stay are skipped</span>
       </div>
     </div>
 
@@ -140,7 +141,7 @@ aside { display: grid; gap: 12px; min-width: 0; }
   const SRC = dec(D.edges.src, Uint16Array), DST = dec(D.edges.dst, Uint16Array), BLK = dec(D.edges.block, Uint16Array);
   const FWD = dec(D.edges.fwd, Uint8Array), FR = dec(D.edges.face_r, Int16Array), FL = dec(D.edges.face_l, Int16Array);
   const TT = dec(D.edges.tt, Uint8Array), NAME = D.edges.name, nE = SRC.length;
-  const FXY = dec(D.faces.xy, Float32Array), FP = dec(D.faces.p, Uint8Array);
+  const FXY = dec(D.faces.xy, Float32Array), FP = dec(D.faces.p, Uint8Array), FLIM = dec(D.faces.lim, Uint8Array);
   const BL = D.blocks.map(a => { const p = []; for (let i = 0; i < a.length; i += 2) p.push([a[i], a[i + 1]]); return p; });
   const LOTS = D.lots;
   const [LAT0, LON0] = D.origin, MLAT = D.m_lat, MLON = D.m_lon;
@@ -163,7 +164,7 @@ aside { display: grid; gap: 12px; min-width: 0; }
   const LOTNODE = LOTS.map(l => nearestNode(l.x, l.y));
 
   // ---- optimizer (port of scripts/parking_sim/optimize.py) ----
-  function edgeTerms(dest, day, hour, walkMax) {
+  function edgeTerms(dest, day, hour, walkMax, stayMin) {
     const p = new Float64Array(nE), walk = new Float64Array(nE), tt = new Float64Array(nE), we = day >= 5 ? 1 : 0;
     for (let e = 0; e < nE; e++) {
       tt[e] = TT[e * 48 + we * 24 + hour];
@@ -172,6 +173,8 @@ aside { display: grid; gap: 12px; min-width: 0; }
         if (f < 0) continue;
         const d = Math.hypot(FXY[2 * f] - dest[0], FXY[2 * f + 1] - dest[1]) * DETOUR;
         if (d > walkMax) continue;
+        const lim = FLIM[f * 168 + day * 24 + hour] * 15;   // legal stay in minutes, 0 = no limit
+        if (lim && lim < stayMin) continue;
         const pf = FP[f * 168 + day * 24 + hour] / 100;
         if (pf <= 0) continue;
         w = (w * pe + d * pf * (1 - pe)) / (pe + pf * (1 - pe));
@@ -280,9 +283,9 @@ aside { display: grid; gap: 12px; min-width: 0; }
     if (lot.rate !== null && lot.rate !== undefined) { let v = lot.rate * stay; if (lot.max) v = Math.min(v, lot.max); price = v === 0 ? 'free' : `$${v.toFixed(2)} for ${stay} h`; }
     return `${lot.name} (${lot.op}), ${walk} m walk, ${price}${lot.verified ? '' : ' — unverified public garage'}`;
   }
-  function plan(dest, day, hour, walkMax) {
+  function plan(dest, day, hour, walkMax, stayH) {
     const start = nearestNode(dest[0], dest[1]);
-    const T = edgeTerms(dest, day, hour, walkMax);
+    const T = edgeTerms(dest, day, hour, walkMax, stayH * 60);
     const { G, which } = lotCosts(dest, day, hour, walkMax, T.tt);
     const route = optimize(start, T, G);
     const base = baseline(start, dest, T);
@@ -301,13 +304,13 @@ aside { display: grid; gap: 12px; min-width: 0; }
   const walkEl = document.getElementById('walk');
   [400, 800].forEach(w => { const b = document.createElement('button'); b.type = 'button'; b.textContent = w + ' m'; b.id = 'walk-' + w; b.setAttribute('aria-pressed', w === state.walk); b.onclick = () => setWalk(w); walkEl.appendChild(b); });
   function setWalk(w) { state.walk = w; walkEl.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.id === 'walk-' + w)); replan(); }
-  const stayEl = document.getElementById('stay'); stayEl.onchange = () => { state.stay = +stayEl.value; render(); };
+  const stayEl = document.getElementById('stay'); stayEl.onchange = () => { state.stay = +stayEl.value; replan(); };
 
   function replan() {
     if (!state.dest) { draw(); return; }
     const hour = Math.floor(state.minute / 60);
-    state.plan = plan(state.dest, state.day, hour, state.walk);
-    state.alt = state.walk < 800 ? plan(state.dest, state.day, hour, 800) : null;
+    state.plan = plan(state.dest, state.day, hour, state.walk, state.stay);
+    state.alt = state.walk < 800 ? plan(state.dest, state.day, hour, 800, state.stay) : null;
     render();
   }
   function render() {
