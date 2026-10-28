@@ -1,0 +1,358 @@
+<title>K-town Curb Contention</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: map-first tool. Controls strip on top, wide canvas map left, readout column right; one column on phones. */
+:root {
+  --bg: #f4f6f9;
+  --panel: #ffffff;
+  --ink: #111823;
+  --ink-2: #4b5667;
+  --muted: #8a94a3;
+  --rule: #dde3ea;
+  --accent: #2a78d6;
+  --street: #c9d1db;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  /* sequential ramp for "how hard to park" (light: easy recedes toward the surface) */
+  --r0: #cde2fb; --r1: #9ec5f4; --r2: #6da7ec; --r3: #3987e5; --r4: #256abf; --r5: #184f95; --r6: #0d366b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10141a; --panel: #161b22; --ink: #e8ecf1; --ink-2: #aeb7c3; --muted: #6e7887; --rule: #27303b;
+    --accent: #3987e5; --street: #2b333e;
+    --r0: #1a3a63; --r1: #1f4f8c; --r2: #2a6bbd; --r3: #3987e5; --r4: #6da7ec; --r5: #9ec5f4; --r6: #dbeafd;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10141a; --panel: #161b22; --ink: #e8ecf1; --ink-2: #aeb7c3; --muted: #6e7887; --rule: #27303b;
+  --accent: #3987e5; --street: #2b333e;
+  --r0: #1a3a63; --r1: #1f4f8c; --r2: #2a6bbd; --r3: #3987e5; --r4: #6da7ec; --r5: #9ec5f4; --r6: #dbeafd;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body { color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; padding-inline: 16px; padding-block: 20px 32px; }
+.wrap { max-width: 1280px; margin-inline: auto; display: grid; gap: 16px; }
+header { display: grid; gap: 4px; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(28px, 4vw, 40px); line-height: 1.05; letter-spacing: 0.01em; margin: 0; text-transform: uppercase; text-wrap: balance; }
+.sub { color: var(--ink-2); margin: 0; max-width: 75ch; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; }
+.facts b { color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; }
+.days { display: flex; flex-wrap: wrap; gap: 4px; }
+.days button, .btn { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid var(--rule); background: transparent; color: var(--ink-2); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+.days button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.days button:hover, .btn:hover { border-color: var(--ink-2); }
+button:focus-visible, input:focus-visible, canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.time { display: flex; align-items: center; gap: 12px; flex: 1 1 300px; min-width: 0; }
+.time input { flex: 1; min-width: 0; accent-color: var(--accent); }
+.clock { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 15px; min-width: 9ch; color: var(--ink); }
+
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.mapbox { position: relative; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+canvas#map { display: block; width: 100%; height: min(72vh, 680px); min-height: 360px; touch-action: none; cursor: grab; }
+canvas#map.dragging { cursor: grabbing; }
+.zoom { position: absolute; top: 10px; right: 10px; display: grid; gap: 4px; }
+.zoom .btn { background: var(--panel); width: 34px; height: 34px; padding: 0; font-size: 18px; }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 10px 14px; border-top: 1px solid var(--rule); font-size: 13px; color: var(--ink-2); }
+.ramp { display: flex; align-items: center; gap: 8px; }
+.ramp .bar { width: 160px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--r6), var(--r5), var(--r4), var(--r3), var(--r2), var(--r1), var(--r0)); }
+.ramp span { font-family: var(--font-data); font-size: 12px; }
+.dash { display: inline-block; width: 28px; height: 0; border-top: 2px dashed var(--muted); vertical-align: middle; }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; box-shadow: 0 6px 24px rgba(10, 20, 35, 0.16); font-size: 13px; width: 240px; display: grid; gap: 6px; }
+.tip .t1 { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; text-transform: uppercase; }
+.tip .t2 { color: var(--ink-2); }
+.tip .num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.sign { display: inline-block; font-family: var(--font-display); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; border: 2px solid currentColor; border-radius: 4px; padding: 1px 6px; color: var(--ink); }
+
+aside { display: grid; gap: 16px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.eyebrow { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.hero { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.hero .big { font-family: var(--font-display); font-weight: 700; font-size: 52px; line-height: 1; font-variant-numeric: tabular-nums; }
+.hero .what { color: var(--ink-2); font-size: 14px; max-width: 26ch; }
+.small { font-size: 13px; color: var(--ink-2); margin: 0; }
+svg text { font-family: var(--font-data); font-size: 10px; fill: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--font-display); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-size: 12px; }
+td.n { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>K-town Curb Contention</h1>
+    <p class="sub">Simulated chance of finding a legal street space on each block face, by day and hour. Each street is drawn as its two curbs; darker means harder to park.</p>
+    <div class="facts"><span>I-10 to 3rd St · La Brea to Hoover</span><span><b id="fFaces"></b> block faces</span><span><b id="fSpaces"></b> legal spaces</span><span>Street cleaning shown for a 2nd/4th-week schedule</span></div>
+  </header>
+
+  <div class="controls" role="group" aria-label="Day and time">
+    <div class="days" id="days"></div>
+    <div class="time">
+      <button class="btn" id="play" aria-label="Play through the day">Play</button>
+      <label for="hour" class="clock" id="clock">Wed 7 PM</label>
+      <input type="range" id="hour" min="0" max="23" step="1" value="19" aria-label="Hour of day">
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="mapbox">
+      <canvas id="map" tabindex="0" aria-label="Map of block faces colored by chance of a free legal space"></canvas>
+      <div class="zoom"><button class="btn" id="zin" aria-label="Zoom in">+</button><button class="btn" id="zout" aria-label="Zoom out">−</button><button class="btn" id="zreset" aria-label="Reset view">⤢</button></div>
+      <div class="tip" id="tip" hidden></div>
+      <div class="legend">
+        <div class="ramp"><span>Hard</span><div class="bar" aria-hidden="true"></div><span>Easy</span></div>
+        <span>Chance a legal space is free during the hour</span>
+        <span><span class="dash" aria-hidden="true"></span> No visitor parking this hour (street cleaning, tow-away, permit only)</span>
+      </div>
+    </div>
+
+    <aside>
+      <section class="card" aria-labelledby="nowTitle">
+        <h2 class="eyebrow" id="nowTitle">At this hour</h2>
+        <div class="hero"><span class="big" id="hardNow">0%</span><span class="what">of legal curb is on blocks where a free space shows up less than 20% of the time</span></div>
+        <p class="small">Median block: <span class="num" id="medNow"></span> of the hour with a free space.</p>
+      </section>
+
+      <section class="card" aria-labelledby="curveTitle">
+        <h2 class="eyebrow" id="curveTitle">Curb on hard-to-park blocks, by hour</h2>
+        <div id="curve"></div>
+        <p class="small">Click the chart to jump to that hour.</p>
+      </section>
+
+      <section class="card" aria-labelledby="valTitle">
+        <h2 class="eyebrow" id="valTitle">How the simulator checks out</h2>
+        <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Check (held-out data)</th><th>Sim</th><th>Benchmark</th></tr></thead>
+          <tbody>
+            <tr><td>Street-cleaning tickets per route area, 38 areas</td><td class="n">ρ 0.88</td><td class="n">—</td></tr>
+            <tr><td>Cars left at the sweep vs tickets per sweep</td><td class="n">38 vs 36</td><td class="n">—</td></tr>
+            <tr><td>Evening permit-street tickets vs outsiders turned away, 6 PM–2 AM, 539 faces</td><td class="n">ρ 0.54</td><td class="n">0.09 capacity</td></tr>
+            <tr><td>Night double parking vs search effort, 1,014 cells</td><td class="n">ρ 0.34</td><td class="n">0.34 satellite</td></tr>
+            <tr><td>Midday cars, 2010 aerial, 701 cells (Wed / Sat)</td><td class="n">ρ 0.30 / 0.39</td><td class="n">0.40 satellite</td></tr>
+            <tr><td>Capacity vs meter count, 137 metered faces</td><td class="n">±5.2 spaces</td><td class="n">±10.5 geometry</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <ul class="notes">
+          <li>Capacity: curb length less corner setbacks, minus driveways, hydrants, red curb and bus zones found in 2023–26 tickets.</li>
+          <li>Demand: residents (parcels and census commute data, anchored to satellite car counts), commuters (LODES jobs), visitors (Google busyness ÷ dwell time, three times heavier after 5 PM).</li>
+          <li>Rules: posted street cleaning, permit-district hours read from tickets, meter tow-away windows, no-stopping and loading-zone hours from tickets.</li>
+          <li>Known gaps: 3rd St to Beverly is not modeled yet; which side is swept on which day is a convention; evenings rest on ticket proxies.</li>
+        </ul>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(() => {
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const CLASSES = ['Residential street', 'Unclassified street', 'Living street', 'Collector street', 'Secondary arterial', 'Primary arterial'];
+  const RULES = ['', 'Street cleaning', 'Tow-away / no stopping', 'Permit only'];
+  const n = D.faces;
+  const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const PF = b64(D.pfree), RU = b64(D.rule);
+  const idx = (f, d, h) => (f * 7 + d) * 24 + h;
+  const [lat0, lon0] = D.origin;
+  const MLAT = 111320, MLON = 111320 * Math.cos(lat0 * Math.PI / 180);
+  // face polylines in metres (x east, y north)
+  const lines = D.lines.map(a => { const p = []; for (let i = 0; i < a.length; i += 2) p.push([a[i + 1] * 1e-5 * MLON, a[i] * 1e-5 * MLAT]); return p; });
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of lines) for (const [x, y] of p) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+  // compass side of each face, from its offset direction relative to the line
+  const compass = D.meta.map((m, i) => {
+    const p = lines[i], a = p[0], b = p[p.length - 1];
+    let nx = -(b[1] - a[1]), ny = b[0] - a[0];
+    if (m[0] === 1) { nx = -nx; ny = -ny; }
+    return Math.abs(nx) > Math.abs(ny) ? (nx > 0 ? 'East side' : 'West side') : (ny > 0 ? 'North side' : 'South side');
+  });
+
+  document.getElementById('fFaces').textContent = n.toLocaleString();
+  document.getElementById('fSpaces').textContent = D.spaces.toLocaleString();
+
+  const state = { day: 2, hour: 19, scale: 1, tx: 0, ty: 0, hover: -1 };
+  const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
+  const tip = document.getElementById('tip');
+  let W = 0, H = 0, base = 1, ox = 0, oy = 0;
+
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  let ramp = [], cMuted = '', cStreet = '', cInk = '';
+  function readTokens() {
+    ramp = ['--r6', '--r5', '--r4', '--r3', '--r2', '--r1', '--r0'].map(css);   // index 0 = hardest
+    cMuted = css('--muted'); cStreet = css('--street'); cInk = css('--ink');
+  }
+  const colorFor = pct => ramp[Math.min(6, Math.floor(pct / (100 / 7)))];
+
+  function resize() {
+    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    W = r.width; H = r.height;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const pad = 16;
+    base = Math.min((W - 2 * pad) / (maxX - minX), (H - 2 * pad) / (maxY - minY));
+    ox = (W - (maxX - minX) * base) / 2; oy = (H - (maxY - minY) * base) / 2;
+    draw();
+  }
+  const sx = x => (ox + (x - minX) * base) * state.scale + state.tx;
+  const sy = y => (oy + (maxY - y) * base) * state.scale + state.ty;
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    const lw = Math.max(1.2, Math.min(4, 1.2 * Math.sqrt(state.scale)));
+    const { day: d, hour: h } = state;
+    // not-allowed faces first (dashed), then by difficulty so hard blocks sit on top
+    ctx.lineCap = 'round';
+    ctx.setLineDash([3, 3]); ctx.strokeStyle = cMuted; ctx.lineWidth = Math.max(1, lw * 0.8);
+    ctx.beginPath();
+    for (let f = 0; f < n; f++) if (RU[idx(f, d, h)]) trace(f);
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.lineWidth = lw;
+    for (let bin = 6; bin >= 0; bin--) {
+      ctx.strokeStyle = ramp[bin]; ctx.beginPath();
+      for (let f = 0; f < n; f++) { const k = idx(f, d, h); if (!RU[k] && Math.min(6, Math.floor(PF[k] / (100 / 7))) === bin) trace(f); }
+      ctx.stroke();
+    }
+    if (state.hover >= 0) { ctx.strokeStyle = cInk; ctx.lineWidth = lw + 3; ctx.beginPath(); trace(state.hover); ctx.stroke(); }
+  }
+  function trace(f) { const p = lines[f]; ctx.moveTo(sx(p[0][0]), sy(p[0][1])); for (let i = 1; i < p.length; i++) ctx.lineTo(sx(p[i][0]), sy(p[i][1])); }
+
+  // nearest face under the pointer (grid index in metres)
+  const G = 60, grid = new Map();
+  lines.forEach((p, f) => { for (let i = 0; i + 1 < p.length; i++) { const cx = Math.floor((p[i][0] + p[i + 1][0]) / 2 / G), cy = Math.floor((p[i][1] + p[i + 1][1]) / 2 / G); const k = cx + ',' + cy; (grid.get(k) || grid.set(k, []).get(k)).push([f, i]); } });
+  function pick(px, py) {
+    const mx = ((px - state.tx) / state.scale - ox) / base + minX, my = maxY - ((py - state.ty) / state.scale - oy) / base;
+    const tol = 10 / (base * state.scale);
+    let best = -1, bd = tol;
+    const r = Math.ceil((tol + G) / G), gx = Math.floor(mx / G), gy = Math.floor(my / G);
+    for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) for (const [f, s] of grid.get((gx + i) + ',' + (gy + j)) || []) {
+      const a = lines[f][s], b = lines[f][s + 1], vx = b[0] - a[0], vy = b[1] - a[1];
+      const t = Math.max(0, Math.min(1, ((mx - a[0]) * vx + (my - a[1]) * vy) / (vx * vx + vy * vy || 1)));
+      const dd = Math.hypot(mx - a[0] - t * vx, my - a[1] - t * vy);
+      if (dd < bd) { bd = dd; best = f; }
+    }
+    return best;
+  }
+  const hourLabel = h => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
+  function showTip(f, px, py) {
+    if (f < 0) { tip.hidden = true; return; }
+    const { day: d, hour: h } = state, k = idx(f, d, h), m = D.meta[f];
+    const rule = RU[k];
+    const now = rule ? `<span class="sign">${RULES[rule]}</span>` : `<span class="num">${PF[k]}%</span> of the hour with a free space`;
+    let bars = '';
+    for (let i = 0; i < 24; i++) {
+      const kk = idx(f, d, i), r = RU[kk], v = r ? 0 : PF[kk], hgt = r ? 2 : Math.max(2, v * 0.3);
+      bars += `<rect x="${i * 9}" y="${32 - hgt}" width="7" height="${hgt}" rx="1.5" fill="${r ? cMuted : colorFor(v)}" ${i === h ? `stroke="${cInk}" stroke-width="1.5"` : ''}/>`;
+    }
+    tip.innerHTML = `<div class="t1">${CLASSES[m[1]]}</div><div class="t2">${compass[f]} · ${m[2]} legal spaces</div><div>${DAYS[d]} ${hourLabel(h)}: ${now}</div>
+      <svg viewBox="0 0 216 44" width="216" height="44" role="img" aria-label="Free-space chance by hour"><g>${bars}</g><text x="0" y="43">12a</text><text x="102" y="43">12p</text><text x="196" y="43">11p</text></svg>`;
+    tip.hidden = false;
+    const r = canvas.getBoundingClientRect(), w = 240;
+    tip.style.left = Math.min(px + 14, r.width - w - 8) + 'px';
+    tip.style.top = Math.min(py + 14, r.height - tip.offsetHeight - 8) + 'px';
+  }
+
+  // pan / zoom / hover
+  const pointers = new Map(); let lastPinch = 0, moved = false;
+  canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, [e.offsetX, e.offsetY]); moved = false; canvas.classList.add('dragging'); });
+  canvas.addEventListener('pointermove', e => {
+    const prev = pointers.get(e.pointerId);
+    if (prev) {
+      if (pointers.size === 1) { state.tx += e.offsetX - prev[0]; state.ty += e.offsetY - prev[1]; if (Math.abs(e.offsetX - prev[0]) + Math.abs(e.offsetY - prev[1]) > 1) moved = true; }
+      pointers.set(e.pointerId, [e.offsetX, e.offsetY]);
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()], dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (lastPinch) zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, dist / lastPinch);
+        lastPinch = dist; moved = true;
+      }
+      tip.hidden = true; draw(); return;
+    }
+    const f = pick(e.offsetX, e.offsetY);
+    if (f !== state.hover) { state.hover = f; draw(); }
+    showTip(f, e.offsetX, e.offsetY);
+  });
+  const endPointer = e => { pointers.delete(e.pointerId); if (pointers.size < 2) lastPinch = 0; if (!pointers.size) canvas.classList.remove('dragging');
+    if (!moved && e.pointerType !== 'mouse') { const f = pick(e.offsetX, e.offsetY); state.hover = f; draw(); showTip(f, e.offsetX, e.offsetY); } };
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { state.hover = -1; tip.hidden = true; draw(); } });
+  canvas.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.offsetX, e.offsetY, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+  function zoomAt(px, py, k) {
+    const s = Math.max(1, Math.min(14, state.scale * k)); k = s / state.scale;
+    state.tx = px - (px - state.tx) * k; state.ty = py - (py - state.ty) * k; state.scale = s;
+    if (s === 1) { state.tx = 0; state.ty = 0; }
+    draw();
+  }
+  document.getElementById('zin').onclick = () => zoomAt(W / 2, H / 2, 1.6);
+  document.getElementById('zout').onclick = () => zoomAt(W / 2, H / 2, 1 / 1.6);
+  document.getElementById('zreset').onclick = () => { state.scale = 1; state.tx = 0; state.ty = 0; draw(); };
+  canvas.addEventListener('keydown', e => {
+    const step = 40, m = { ArrowLeft: [step, 0], ArrowRight: [-step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }[e.key];
+    if (m) { state.tx += m[0]; state.ty += m[1]; draw(); e.preventDefault(); }
+    if (e.key === '+' || e.key === '=') zoomAt(W / 2, H / 2, 1.4);
+    if (e.key === '-') zoomAt(W / 2, H / 2, 1 / 1.4);
+  });
+
+  // controls
+  const daysEl = document.getElementById('days');
+  DAYS.forEach((name, d) => { const b = document.createElement('button'); b.textContent = name; b.id = 'day-' + name; b.setAttribute('aria-pressed', d === state.day); b.onclick = () => setDay(d); daysEl.appendChild(b); });
+  const hourEl = document.getElementById('hour'), clock = document.getElementById('clock');
+  hourEl.addEventListener('input', () => setHour(+hourEl.value));
+  function setDay(d) { state.day = d; [...daysEl.children].forEach((b, i) => b.setAttribute('aria-pressed', i === d)); update(); }
+  function setHour(h) { state.hour = h; hourEl.value = h; update(); }
+  function update() {
+    const { day: d, hour: h } = state;
+    clock.textContent = `${DAYS[d]} ${hourLabel(h)}`;
+    document.getElementById('hardNow').textContent = Math.round(D.hardShare[d][h]) + '%';
+    document.getElementById('medNow').textContent = Math.round(D.medianFree[d][h]) + '%';
+    tip.hidden = true; draw(); drawCurve();
+  }
+  let timer = null;
+  const playBtn = document.getElementById('play');
+  playBtn.onclick = () => {
+    if (timer) { clearInterval(timer); timer = null; playBtn.textContent = 'Play'; return; }
+    playBtn.textContent = 'Pause';
+    timer = setInterval(() => setHour((state.hour + 1) % 24), 700);
+  };
+
+  // hourly curve for the selected day (single series, 0-100%)
+  const curveEl = document.getElementById('curve');
+  function drawCurve() {
+    const w = 300, h = 150, l = 30, r = 8, t = 10, bt = 22, ys = v => t + (100 - v) / 100 * (h - t - bt), xs = i => l + i * (w - l - r) / 23;
+    const s = D.hardShare[state.day], acc = css('--accent'), rule = css('--rule'), ink = css('--ink');
+    let g = '';
+    for (const v of [0, 25, 50, 75, 100]) g += `<line x1="${l}" x2="${w - r}" y1="${ys(v)}" y2="${ys(v)}" stroke="${rule}" stroke-width="1"/><text x="${l - 6}" y="${ys(v) + 3}" text-anchor="end">${v}%</text>`;
+    for (const i of [0, 6, 12, 18, 23]) g += `<text x="${xs(i)}" y="${h - 6}" text-anchor="middle">${['12a', '', '', '', '', '', '6a', '', '', '', '', '', '12p', '', '', '', '', '', '6p', '', '', '', '', '11p'][i]}</text>`;
+    const path = s.map((v, i) => (i ? 'L' : 'M') + xs(i).toFixed(1) + ' ' + ys(v).toFixed(1)).join(' ');
+    const area = path + ` L${xs(23)} ${ys(0)} L${xs(0)} ${ys(0)} Z`;
+    const hx = xs(state.hour), hy = ys(s[state.hour]);
+    curveEl.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="Share of legal curb on hard-to-park blocks for ${DAYS[state.day]}, by hour" style="cursor:pointer">
+      ${g}<path d="${area}" fill="${acc}" fill-opacity="0.12"/><path d="${path}" fill="none" stroke="${acc}" stroke-width="2" stroke-linejoin="round"/>
+      <line x1="${hx}" x2="${hx}" y1="${t}" y2="${ys(0)}" stroke="${ink}" stroke-width="1" stroke-dasharray="2 3"/>
+      <circle cx="${hx}" cy="${hy}" r="4.5" fill="${acc}" stroke="${css('--panel')}" stroke-width="2"/>
+      <text x="${Math.min(hx + 7, w - 40)}" y="${Math.max(hy - 8, 18)}" style="fill:${ink};font-size:11px">${Math.round(s[state.hour])}%</text>
+      <rect x="${l}" y="0" width="${w - l - r}" height="${h}" fill="transparent" id="curveHit"/></svg>`;
+    curveEl.querySelector('#curveHit').addEventListener('click', e => {
+      const svg = curveEl.firstElementChild, pt = svg.getBoundingClientRect(), x = (e.clientX - pt.left) / pt.width * w;
+      setHour(Math.max(0, Math.min(23, Math.round((x - l) / ((w - l - r) / 23)))));
+    });
+  }
+
+  readTokens();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readTokens(); draw(); drawCurve(); });
+  new MutationObserver(() => { readTokens(); draw(); drawCurve(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  new ResizeObserver(resize).observe(canvas);
+  update();
+})();
+</script>
